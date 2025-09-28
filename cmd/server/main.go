@@ -16,4 +16,12 @@ func main() {
 	if err := wsSrv.Start(); err != nil {
 		log.Errorf("Error with ws server: %v", err)
 	}
+
+	//go func() {
+	//	if err := wsSrv.Start(); err != nil {
+	//		log.Errorf("Error with ws server: %v", err)
+	//	}
+	//}()
+	//time.Sleep(time.Second * 5)
+	//log.Error(wsSrv.Stop())
 }

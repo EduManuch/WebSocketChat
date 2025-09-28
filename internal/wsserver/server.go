@@ -1,6 +1,8 @@
 package wsserver
 
 import (
+	"context"
+	"errors"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"net"
@@ -16,6 +18,7 @@ const (
 
 type WSServer interface {
 	Start() error
+	Stop() error
 }
 
 type wsSrv struct {
@@ -46,13 +49,23 @@ func (ws *wsSrv) Start() error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	ws.mux.HandleFunc("/test", ws.testHandler)
 	go ws.writeToClientsBroadCast()
 	return ws.srv.ListenAndServe()
 }
 
-func (ws *wsSrv) testHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Test is successful"))
+func (ws *wsSrv) Stop() error {
+	log.Info("Before close", ws.wsClients)
+	close(ws.broadcast)
+	ws.mutex.Lock()
+	for conn := range ws.wsClients {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Error with closing: %v", err)
+		}
+		delete(ws.wsClients, conn)
+	}
+	ws.mutex.Unlock()
+	log.Info("After close", ws.wsClients)
+	return ws.srv.Shutdown(context.Background())
 }
 
 func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
@@ -74,8 +87,12 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 		msg := new(wsMessage)
 		err := conn.ReadJSON(msg)
 		if err != nil {
-			log.Errorf("Error with reading from Websocket: %v", err)
-			break
+			var wsErr *websocket.CloseError
+			ok := errors.As(err, &wsErr)
+			if !ok || wsErr.Code != websocket.CloseGoingAway {
+				log.Errorf("Error with reading from Websocket: %v", err)
+				break
+			}
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 		if err != nil {
