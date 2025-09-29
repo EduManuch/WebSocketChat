@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -27,9 +28,13 @@ type wsSrv struct {
 	mux       *http.ServeMux
 	srv       *http.Server
 	wsUpg     *websocket.Upgrader
-	wsClients map[*websocket.Conn]struct{}
-	mutex     *sync.RWMutex
 	broadcast chan *wsMessage
+	clients   clients
+}
+
+type clients struct {
+	mutex     *sync.RWMutex
+	wsClients map[*websocket.Conn]struct{}
 }
 
 func NewWsServer(addr string) WSServer {
@@ -50,19 +55,30 @@ func NewWsServer(addr string) WSServer {
 				},
 			},
 		},
-		wsUpg:     &websocket.Upgrader{},
-		wsClients: map[*websocket.Conn]struct{}{},
-		mutex:     &sync.RWMutex{},
+		wsUpg: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				addrUrl, err := url.ParseRequestURI(origin)
+				if err != nil {
+					return false
+				}
+				return addrUrl.Host == addr // тут разрешил соединение только со своего адреса
+			},
+		},
 		broadcast: make(chan *wsMessage),
+		clients: clients{
+			mutex:     &sync.RWMutex{},
+			wsClients: map[*websocket.Conn]struct{}{},
+		},
 	}
 }
 
 func (ws *wsSrv) Start(cert, key string) error {
-	certificate, err := tls.LoadX509KeyPair(cert, key)
+	certPair, err := tls.LoadX509KeyPair(cert, key)
 	if err != nil {
 		return fmt.Errorf("failed certificate pair: %w", err)
 	}
-	ws.srv.TLSConfig.Certificates = append(ws.srv.TLSConfig.Certificates, certificate)
+	ws.srv.TLSConfig.Certificates = append(ws.srv.TLSConfig.Certificates, certPair)
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
@@ -72,17 +88,17 @@ func (ws *wsSrv) Start(cert, key string) error {
 }
 
 func (ws *wsSrv) Stop() error {
-	log.Info("Before close", ws.wsClients)
+	log.Info("Before close", ws.clients.wsClients)
 	close(ws.broadcast)
-	ws.mutex.Lock()
-	for conn := range ws.wsClients {
+	ws.clients.mutex.Lock()
+	for conn := range ws.clients.wsClients {
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
-		delete(ws.wsClients, conn)
+		delete(ws.clients.wsClients, conn)
 	}
-	ws.mutex.Unlock()
-	log.Info("After close", ws.wsClients)
+	ws.clients.mutex.Unlock()
+	log.Info("After close", ws.clients.wsClients)
 	return ws.srv.Shutdown(context.Background())
 }
 
@@ -94,9 +110,9 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Infof("Client with address %s connected", conn.RemoteAddr().String())
-	ws.mutex.Lock()
-	ws.wsClients[conn] = struct{}{}
-	ws.mutex.Unlock()
+	ws.clients.mutex.Lock()
+	ws.clients.wsClients[conn] = struct{}{}
+	ws.clients.mutex.Unlock()
 	go ws.readFromClient(conn)
 }
 
@@ -119,21 +135,21 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
 	}
-	ws.mutex.Lock()
-	delete(ws.wsClients, conn)
-	ws.mutex.Unlock()
+	ws.clients.mutex.Lock()
+	delete(ws.clients.wsClients, conn)
+	ws.clients.mutex.Unlock()
 }
 
 func (ws *wsSrv) writeToClientsBroadCast() {
 	for msg := range ws.broadcast {
-		ws.mutex.RLock()
-		for client := range ws.wsClients {
+		ws.clients.mutex.RLock()
+		for client := range ws.clients.wsClients {
 			go func() {
 				if err := client.WriteJSON(msg); err != nil {
 					log.Errorf("Error with writing message: %v", err)
 				}
 			}()
 		}
-		ws.mutex.RUnlock()
+		ws.clients.mutex.RUnlock()
 	}
 }
