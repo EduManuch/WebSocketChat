@@ -40,7 +40,7 @@ func NewWsServer(addr string) WSServer {
 			Handler: m,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
-				MinVersion:         tls.VersionTLS12,
+				MinVersion:         tls.VersionTLS13,
 			},
 		},
 		wsUpg:     &websocket.Upgrader{},
