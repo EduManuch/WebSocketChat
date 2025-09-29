@@ -8,11 +8,14 @@ WebSocketChat
 
 [Project Layout](https://github.com/golang-standards/project-layout)
 
-[Add Certificate to Ubuntu and Firefox](https://linuxconfig.org/step-by-step-guide-adding-certificates-to-ubuntus-trusted-authorities)
-
+# TLS
 ***Example of Installing self-signed certificate and CA***
 ```
 sudo apt install mkcert
 mkcert -install
 mkcert 127.0.0.1
 ```
+
+[Add Certificate to Ubuntu and Firefox](https://linuxconfig.org/step-by-step-guide-adding-certificates-to-ubuntus-trusted-authorities)
+
+Change in index.html ```WebSocket('ws://...);``` to ```new WebSocket('wss://...);```
