@@ -56,6 +56,8 @@ func (ws *wsSrv) Start(cert, key string) error {
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	go ws.writeToClientsBroadCast()
 	return ws.srv.ListenAndServeTLS(cert, key)
+	//log.Info(cert, key)
+	//return ws.srv.ListenAndServe()
 }
 
 func (ws *wsSrv) Stop() error {
@@ -90,14 +92,13 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 	for {
 		msg := new(wsMessage)
-		err := conn.ReadJSON(msg)
-		if err != nil {
+		if err := conn.ReadJSON(msg); err != nil {
 			var wsErr *websocket.CloseError
 			ok := errors.As(err, &wsErr)
 			if !ok || wsErr.Code != websocket.CloseGoingAway {
 				log.Errorf("Error with reading from Websocket: %v", err)
-				break
 			}
+			break
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 		if err != nil {
