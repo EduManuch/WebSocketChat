@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -17,7 +18,7 @@ const (
 )
 
 type WSServer interface {
-	Start() error
+	Start(cert, key string) error
 	Stop() error
 }
 
@@ -37,6 +38,10 @@ func NewWsServer(addr string) WSServer {
 		srv: &http.Server{
 			Addr:    addr,
 			Handler: m,
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			},
 		},
 		wsUpg:     &websocket.Upgrader{},
 		wsClients: map[*websocket.Conn]struct{}{},
@@ -45,12 +50,12 @@ func NewWsServer(addr string) WSServer {
 	}
 }
 
-func (ws *wsSrv) Start() error {
+func (ws *wsSrv) Start(cert, key string) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	go ws.writeToClientsBroadCast()
-	return ws.srv.ListenAndServe()
+	return ws.srv.ListenAndServeTLS(cert, key)
 }
 
 func (ws *wsSrv) Stop() error {
