@@ -15,7 +15,7 @@ func main() {
 	wsSrv := wsserver.NewWsServer(addr)
 	log.Info("Started ws server")
 	if err := wsSrv.Start(certFile, keyFile); err != nil {
-		log.Errorf("Error with ws server: %v", err)
+		log.Fatalf("Error with ws server: %v", err)
 	}
 	log.Error(wsSrv.Stop())
 }

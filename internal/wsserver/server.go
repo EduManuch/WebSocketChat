@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"net"
@@ -39,9 +40,14 @@ func NewWsServer(addr string) WSServer {
 			Addr:    addr,
 			Handler: m,
 			TLSConfig: &tls.Config{
-				InsecureSkipVerify: true,
-				MinVersion:         tls.VersionTLS12,
-				MaxVersion:         tls.VersionTLS13,
+				MinVersion: tls.VersionTLS12,
+				MaxVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
 			},
 		},
 		wsUpg:     &websocket.Upgrader{},
@@ -52,13 +58,17 @@ func NewWsServer(addr string) WSServer {
 }
 
 func (ws *wsSrv) Start(cert, key string) error {
+	certificate, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		return fmt.Errorf("failed certificate pair: %w", err)
+	}
+	ws.srv.TLSConfig.Certificates = append(ws.srv.TLSConfig.Certificates, certificate)
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	go ws.writeToClientsBroadCast()
-	return ws.srv.ListenAndServeTLS(cert, key)
-	//log.Info(cert, key)
-	//return ws.srv.ListenAndServe()
+	//return ws.srv.ListenAndServeTLS(cert, key)
+	return ws.srv.ListenAndServeTLS("", "")
 }
 
 func (ws *wsSrv) Stop() error {
