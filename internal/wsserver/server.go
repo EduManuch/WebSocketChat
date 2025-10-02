@@ -14,13 +14,8 @@ import (
 	"time"
 )
 
-const (
-	templateDir = "./web/templates/html"
-	staticDir   = "./web/static"
-)
-
 type WSServer interface {
-	Start(cert, key string) error
+	Start(cert, key, templateDir, staticDir string) error
 	Stop() error
 }
 
@@ -73,7 +68,7 @@ func NewWsServer(addr string) WSServer {
 	}
 }
 
-func (ws *wsSrv) Start(cert, key string) error {
+func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	certPair, err := tls.LoadX509KeyPair(cert, key)
 	if err != nil {
 		return fmt.Errorf("failed certificate pair: %w", err)
