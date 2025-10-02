@@ -2,9 +2,13 @@ package main
 
 import (
 	"WebSocketChat/internal/wsserver"
+	"context"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -32,10 +36,29 @@ func init() {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+		<-c
+		cancel()
+	}()
+
 	wsSrv := wsserver.NewWsServer(addr + port)
-	log.Info("Started ws server")
-	if err := wsSrv.Start(certFile, keyFile, templateDir, staticDir); err != nil {
-		log.Fatalf("Error with ws server: %v", err)
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		log.Info("Started ws server")
+		return wsSrv.Start(certFile, keyFile, templateDir, staticDir)
+	})
+
+	g.Go(func() error {
+		<-gCtx.Done()
+		return wsSrv.Stop()
+	})
+
+	if err := g.Wait(); err != nil {
+		log.Printf("Shutdown server: %v\n", err)
 	}
-	log.Error(wsSrv.Stop())
 }
