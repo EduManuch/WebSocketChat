@@ -25,6 +25,7 @@ type wsSrv struct {
 	wsUpg     *websocket.Upgrader
 	broadcast chan *wsMessage
 	clients   clients
+	connChan  chan *websocket.Conn
 }
 
 type clients struct {
@@ -65,6 +66,7 @@ func NewWsServer(addr string) WSServer {
 			mutex:     &sync.RWMutex{},
 			wsClients: map[*websocket.Conn]struct{}{},
 		},
+		connChan: make(chan *websocket.Conn, 1),
 	}
 }
 
@@ -78,7 +80,8 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	//go ws.writeToClientsBroadCast()
-	go ws.SafeWrite()
+	go ws.controlClientsConn()
+	go ws.safeWrite()
 	return ws.srv.ListenAndServeTLS("", "")
 }
 
@@ -90,7 +93,8 @@ func (ws *wsSrv) Stop() error {
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
-		delete(ws.clients.wsClients, conn)
+		//delete(ws.clients.wsClients, conn)
+		ws.connChan <- conn
 	}
 	ws.clients.mutex.Unlock()
 	log.Info("After close", ws.clients.wsClients)
@@ -105,14 +109,31 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Infof("Client with address %s connected", conn.RemoteAddr().String())
-	ws.clients.mutex.Lock()
-	ws.clients.wsClients[conn] = struct{}{}
-	ws.clients.mutex.Unlock()
+
+	//ws.clients.mutex.Lock()
+	//ws.clients.wsClients[conn] = struct{}{}
+	//ws.clients.mutex.Unlock()
+	ws.connChan <- conn
 	//go ws.readFromClient(conn)
-	go ws.SafeRead(conn)
+	go ws.safeRead(conn)
 }
 
-func (ws *wsSrv) SafeRead(conn *websocket.Conn) {
+func (ws *wsSrv) controlClientsConn() {
+	for conn := range ws.connChan {
+		ws.clients.mutex.Lock()
+		// Если соединения нет в мапе, значит было создано новое
+		if _, ok := ws.clients.wsClients[conn]; !ok {
+			fmt.Println("СОЗДАЛИ")
+			ws.clients.wsClients[conn] = struct{}{}
+		} else { // иначе соединение отправлено для удаления
+			fmt.Println("УДАЛИЛИ")
+			delete(ws.clients.wsClients, conn)
+		}
+		ws.clients.mutex.Unlock()
+	}
+}
+
+func (ws *wsSrv) safeRead(conn *websocket.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error launching write worker: %v", r)
@@ -159,12 +180,13 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
 	}
-	ws.clients.mutex.Lock()
-	delete(ws.clients.wsClients, conn)
-	ws.clients.mutex.Unlock()
+	//ws.clients.mutex.Lock()
+	//delete(ws.clients.wsClients, conn)
+	//ws.clients.mutex.Unlock()
+	ws.connChan <- conn
 }
 
-func (ws *wsSrv) SafeWrite() {
+func (ws *wsSrv) safeWrite() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error launching write worker: %v", r)
