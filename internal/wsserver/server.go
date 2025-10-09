@@ -77,8 +77,8 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	go ws.writeToClientsBroadCast()
-	//return ws.srv.ListenAndServeTLS(cert, key)
+	//go ws.writeToClientsBroadCast()
+	go ws.SafeWrite()
 	return ws.srv.ListenAndServeTLS("", "")
 }
 
@@ -108,10 +108,36 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	ws.clients.mutex.Lock()
 	ws.clients.wsClients[conn] = struct{}{}
 	ws.clients.mutex.Unlock()
-	go ws.readFromClient(conn)
+	//go ws.readFromClient(conn)
+	go ws.SafeRead(conn)
 }
 
-func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
+func (ws *wsSrv) SafeRead(conn *websocket.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("error launching write worker: %v", r)
+		}
+	}()
+
+	ch := make(chan int, 1)
+	goFunc := func() {
+		ws.readFromClient(conn, ch)
+	}
+
+	ch <- 1
+	for _ = range ch {
+		go goFunc()
+	}
+}
+
+func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("error in write worker : %v", r)
+			c <- 1
+		}
+	}()
+
 	for {
 		msg := new(wsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
@@ -126,6 +152,9 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 		if err != nil {
 			log.Errorf("Error with address split: %v", err)
 		}
+		//if msg.Message == "111" {
+		//	panic("HELP")
+		//}
 		msg.IPAddress = host
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
@@ -135,9 +164,38 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 	ws.clients.mutex.Unlock()
 }
 
-func (ws *wsSrv) writeToClientsBroadCast() {
+func (ws *wsSrv) SafeWrite() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("error launching write worker: %v", r)
+		}
+	}()
+
+	ch := make(chan int, 1)
+	goFunc := func() {
+		ws.writeToClientsBroadCast(ch)
+	}
+
+	ch <- 1
+	for _ = range ch {
+		go goFunc()
+	}
+}
+
+func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("error in write worker : %v", r)
+			ws.clients.mutex.RUnlock()
+			c <- 1
+		}
+	}()
+
 	for msg := range ws.broadcast {
 		ws.clients.mutex.RLock()
+		//if msg.Message == "111" {
+		//	panic("HELP")
+		//}
 		for client := range ws.clients.wsClients {
 			go func() {
 				if err := client.WriteJSON(msg); err != nil {
