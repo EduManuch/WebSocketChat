@@ -79,7 +79,6 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	//go ws.writeToClientsBroadCast()
 	go ws.controlClientsConn()
 	go ws.safeWrite()
 	return ws.srv.ListenAndServeTLS("", "")
@@ -110,11 +109,7 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Infof("Client with address %s connected", conn.RemoteAddr().String())
 
-	//ws.clients.mutex.Lock()
-	//ws.clients.wsClients[conn] = struct{}{}
-	//ws.clients.mutex.Unlock()
 	ws.connChan <- conn
-	//go ws.readFromClient(conn)
 	go ws.safeRead(conn)
 }
 
@@ -173,16 +168,10 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 		if err != nil {
 			log.Errorf("Error with address split: %v", err)
 		}
-		//if msg.Message == "111" {
-		//	panic("HELP")
-		//}
 		msg.IPAddress = host
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
 	}
-	//ws.clients.mutex.Lock()
-	//delete(ws.clients.wsClients, conn)
-	//ws.clients.mutex.Unlock()
 	ws.connChan <- conn
 }
 
@@ -208,23 +197,30 @@ func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error in write worker : %v", r)
-			ws.clients.mutex.RUnlock()
+			ws.clients.mutex.Unlock()
 			c <- 1
 		}
 	}()
 
 	for msg := range ws.broadcast {
-		ws.clients.mutex.RLock()
-		//if msg.Message == "111" {
-		//	panic("HELP")
-		//}
 		for client := range ws.clients.wsClients {
-			go func() {
-				if err := client.WriteJSON(msg); err != nil {
-					log.Errorf("Error with writing message: %v", err)
-				}
-			}()
+			if err := client.WriteJSON(msg); err != nil {
+				log.Errorf("Error with writing message: %v", err)
+				ws.clients.mutex.Lock()
+				delete(ws.clients.wsClients, client)
+				ws.clients.mutex.Unlock()
+			}
 		}
-		ws.clients.mutex.RUnlock()
 	}
+	//for msg := range ws.broadcast {
+	//	ws.clients.mutex.RLock()
+	//	for client := range ws.clients.wsClients {
+	//		go func() {
+	//			if err := client.WriteJSON(msg); err != nil {
+	//				log.Errorf("Error with writing message: %v", err)
+	//			}
+	//		}()
+	//	}
+	//	ws.clients.mutex.RUnlock()
+	//}
 }
