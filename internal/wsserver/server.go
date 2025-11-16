@@ -58,7 +58,12 @@ func NewWsServer(addr string) WSServer {
 				if err != nil {
 					return false
 				}
-				return addrUrl.Host == addr // тут разрешил соединение только со своего адреса
+				switch addrUrl.Host { // тут разрешаем соединение из списка хостов
+				case addr, "127.0.0.1:8443":
+					return true
+				default:
+					return false
+				}
 			},
 		},
 		broadcast: make(chan *wsMessage),
