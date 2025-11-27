@@ -15,12 +15,13 @@ WEBSOCKERT2_CONTAINER := websock2
 
 .PHONY: help logs1 logs2
 
-
+# ---- HELP ----
 help: ## показать цели
 	@echo "Usage: make [target]"
 	@echo ""
 	@grep -E '^[a-zA-Z0-9_-]+:.*##' Makefile | awk 'BEGIN {FS=":"}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
+# ---- DOCKER ----
 up: ## собрать и запустить всё окружение
 	$(COMPOSE) up -d --build --force-recreate
 	@echo "\n🚀 App stack started"
@@ -62,4 +63,12 @@ shell1: ## shell в контейнер websock1
 shell2: ## shell в контейнер websock2
 	docker exec -it $(WEBSOCKERT2_CONTAINER) /bin/sh
 
+# ---- GO LOCAL ----
+vet: ## запустить go vet
+	go vet ./...
 
+fmt: ## форматировать код
+	go fmt ./...
+
+run: ## запустить локально без Docker
+	go run cmd/server/main.go
