@@ -59,7 +59,7 @@ func NewWsServer(addr string) WSServer {
 					return false
 				}
 				switch addrUrl.Host { // тут разрешаем соединение из списка хостов
-				case addr, "127.0.0.1:8443":
+				case addr, "127.0.0.1:8443", "127.0.0.1:8444", "localhost:8443", "localhost:8444":
 					return true
 				default:
 					return false

@@ -1,0 +1,29 @@
+services:
+  webs1:
+    image: websocket:latest
+    container_name: websock1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8443:8443"
+    restart: unless-stopped
+    networks:
+      - websocknet
+
+  webs2:
+    image: websocket:latest
+    container_name: websock2
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8444:8443"
+    restart: unless-stopped
+    networks:
+      - websocknet
+
+networks:
+  websocknet:
+    name: websocknet
+    driver: bridge
