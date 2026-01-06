@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"net"
@@ -23,9 +24,10 @@ type wsSrv struct {
 	mux       *http.ServeMux
 	srv       *http.Server
 	wsUpg     *websocket.Upgrader
-	broadcast chan *wsMessage
+	broadcast chan *WsMessage
 	clients   clients
 	connChan  chan *websocket.Conn
+	wsKafka   Kafka
 }
 
 type clients struct {
@@ -33,8 +35,17 @@ type clients struct {
 	wsClients map[*websocket.Conn]struct{}
 }
 
+type Kafka struct {
+	Producer *kafka.Producer
+	Consumer *kafka.Consumer
+}
+
 func NewWsServer(addr string) WSServer {
 	m := http.NewServeMux()
+	k := Kafka{
+		Producer: NewProducer("kafka:29092"),
+	}
+
 	return &wsSrv{
 		mux: m,
 		srv: &http.Server{
@@ -66,12 +77,13 @@ func NewWsServer(addr string) WSServer {
 				}
 			},
 		},
-		broadcast: make(chan *wsMessage),
+		broadcast: make(chan *WsMessage),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
 			wsClients: map[*websocket.Conn]struct{}{},
 		},
 		connChan: make(chan *websocket.Conn, 1),
+		wsKafka:  k,
 	}
 }
 
@@ -160,7 +172,7 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 	}()
 
 	for {
-		msg := new(wsMessage)
+		msg := new(WsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
 			var wsErr *websocket.CloseError
 			ok := errors.As(err, &wsErr)
@@ -214,18 +226,9 @@ func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
 				ws.clients.mutex.Lock()
 				delete(ws.clients.wsClients, client)
 				ws.clients.mutex.Unlock()
+			} else {
+				ws.wsKafka.SendKafka(msg)
 			}
 		}
 	}
-	//for msg := range ws.broadcast {
-	//	ws.clients.mutex.RLock()
-	//	for client := range ws.clients.wsClients {
-	//		go func() {
-	//			if err := client.WriteJSON(msg); err != nil {
-	//				log.Errorf("Error with writing message: %v", err)
-	//			}
-	//		}()
-	//	}
-	//	ws.clients.mutex.RUnlock()
-	//}
 }

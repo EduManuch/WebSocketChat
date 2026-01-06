@@ -13,7 +13,7 @@ WEBSOCKERT2_SERVICE := webs2
 WEBSOCKERT1_CONTAINER := websock1
 WEBSOCKERT2_CONTAINER := websock2
 
-.PHONY: help logs1 logs2
+.PHONY: help up start down clean rebuild ps logs1 logs2 logs shell1 shell2
 
 # ---- HELP ----
 help: ## показать цели
