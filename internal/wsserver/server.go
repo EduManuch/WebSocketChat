@@ -43,7 +43,8 @@ type Kafka struct {
 func NewWsServer(addr string) WSServer {
 	m := http.NewServeMux()
 	k := Kafka{
-		Producer: NewProducer("kafka:29092"),
+		Producer: NewProducer("kafka:9092"),
+		Consumer: NewConsumer("kafka:9092"),
 	}
 
 	return &wsSrv{
@@ -128,6 +129,7 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	ws.connChan <- conn
 	go ws.safeRead(conn)
+	go ws.ReceiveKafka()
 }
 
 func (ws *wsSrv) controlClientsConn() {

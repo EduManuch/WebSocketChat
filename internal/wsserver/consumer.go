@@ -1,8 +1,9 @@
 package wsserver
 
 import (
+	"encoding/json"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -17,22 +18,28 @@ func NewConsumer(address string) *kafka.Consumer {
 		panic(err)
 	}
 
-	return c
-}
-
-func doConsume() {
-	c := NewConsumer("localhost:9092")
-	err := c.Subscribe("websock-topic1", nil)
+	err = c.Subscribe("web-topic1", nil)
 	if err != nil {
 		panic(err)
 	}
 
+	return c
+}
+
+func (ws *wsSrv) ReceiveKafka() {
+	log.Println("kafka consumer started")
 	for {
-		msg, err := c.ReadMessage(time.Second)
+		message, err := ws.wsKafka.Consumer.ReadMessage(time.Second)
 		if err == nil {
-			log.Printf("Message on %s: %s\n", msg.TopicPartition, string(msg.Value))
+			//log.Printf("Message on %s: %s\n", msg.TopicPartition, string(msg.Value))
+			msg := new(WsMessage)
+			err = json.Unmarshal(message.Value, msg)
+			if err != nil {
+				log.Errorf("Error unmarshalling kafka message: %v", err)
+			}
+			ws.broadcast <- msg
 		} else if !err.(kafka.Error).IsTimeout() {
-			log.Printf("Consumer error: %v (%v)\n", err, msg)
+			log.Printf("Consumer error: %v (%v)\n", err, message)
 		}
 	}
 }
