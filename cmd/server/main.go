@@ -32,7 +32,6 @@ func init() {
 	keyFile = os.Getenv("KEY")
 	templateDir = os.Getenv("TEMPLATEDIR")
 	staticDir = os.Getenv("STATICDIR")
-
 }
 
 func main() {

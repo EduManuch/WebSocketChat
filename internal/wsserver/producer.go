@@ -21,9 +21,9 @@ func NewProducer(address string) *kafka.Producer {
 	return p
 }
 
-func (k *Kafka) SendKafka(message *WsMessage) {
+func (ws *wsSrv) SendKafka(message *WsMessage) {
 	go func() {
-		for e := range k.Producer.Events() {
+		for e := range ws.wsKafka.Producer.Events() {
 			switch ev := e.(type) {
 			case *kafka.Message:
 				if ev.TopicPartition.Error != nil {
@@ -35,19 +35,19 @@ func (k *Kafka) SendKafka(message *WsMessage) {
 		}
 	}()
 
-	if !message.FromKafka {
-		message.FromKafka = true
+	if message.Host == "" {
+		message.Host = ws.host
 		value, err := json.Marshal(message)
 		if err != nil {
 			log.Errorf("Error while marshaling message to json: %v", err)
 		}
-		topic := "web-topic1"
-		k.Producer.Produce(&kafka.Message{
+		topic := "web-topic"
+		ws.wsKafka.Producer.Produce(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 			Value:          value,
 		}, nil)
 
-		k.Producer.Flush(15 * 1000)
+		ws.wsKafka.Producer.Flush(15 * 1000)
 	}
 }
 
@@ -63,7 +63,7 @@ func createTopic(conf *kafka.ConfigMap) error {
 
 	_, err = admin.CreateTopics(ctx, []kafka.TopicSpecification{
 		{
-			Topic:             "web-topic1",
+			Topic:             "web-topic",
 			NumPartitions:     1,
 			ReplicationFactor: 1,
 		},

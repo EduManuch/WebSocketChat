@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-func NewConsumer(address string) *kafka.Consumer {
+func NewConsumer(address, hostname string) *kafka.Consumer {
 	conf := &kafka.ConfigMap{
 		"bootstrap.servers": address,
-		"group.id":          "consumer_group1",
+		"group.id":          "consumer_group_" + hostname,
 		"auto.offset.reset": "earliest",
 	}
 	c, err := kafka.NewConsumer(conf)
@@ -18,7 +18,7 @@ func NewConsumer(address string) *kafka.Consumer {
 		panic(err)
 	}
 
-	err = c.Subscribe("web-topic1", nil)
+	err = c.Subscribe("web-topic", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -36,6 +36,9 @@ func (ws *wsSrv) ReceiveKafka() {
 			err = json.Unmarshal(message.Value, msg)
 			if err != nil {
 				log.Errorf("Error unmarshalling kafka message: %v", err)
+			}
+			if msg.Host == ws.host {
+				continue
 			}
 			ws.broadcast <- msg
 		} else if !err.(kafka.Error).IsTimeout() {

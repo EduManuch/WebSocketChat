@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 )
@@ -28,6 +29,7 @@ type wsSrv struct {
 	clients   clients
 	connChan  chan *websocket.Conn
 	wsKafka   Kafka
+	host      string
 }
 
 type clients struct {
@@ -42,9 +44,10 @@ type Kafka struct {
 
 func NewWsServer(addr string) WSServer {
 	m := http.NewServeMux()
+	hostname, _ := os.Hostname()
 	k := Kafka{
 		Producer: NewProducer("kafka:9092"),
-		Consumer: NewConsumer("kafka:9092"),
+		Consumer: NewConsumer("kafka:9092", hostname),
 	}
 
 	return &wsSrv{
@@ -85,6 +88,7 @@ func NewWsServer(addr string) WSServer {
 		},
 		connChan: make(chan *websocket.Conn, 1),
 		wsKafka:  k,
+		host:     hostname,
 	}
 }
 
@@ -229,7 +233,7 @@ func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
 				delete(ws.clients.wsClients, client)
 				ws.clients.mutex.Unlock()
 			} else {
-				ws.wsKafka.SendKafka(msg)
+				ws.SendKafka(msg)
 			}
 		}
 	}
