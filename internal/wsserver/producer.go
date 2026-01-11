@@ -22,19 +22,6 @@ func NewProducer(address string) *kafka.Producer {
 }
 
 func (ws *wsSrv) SendKafka(message *WsMessage) {
-	go func() {
-		for e := range ws.wsKafka.Producer.Events() {
-			switch ev := e.(type) {
-			case *kafka.Message:
-				if ev.TopicPartition.Error != nil {
-					log.Printf("Delivery failed: %v\n", ev.TopicPartition)
-				} else {
-					log.Printf("Delivered message to %v\n", ev.TopicPartition)
-				}
-			}
-		}
-	}()
-
 	if message.Host == "" {
 		message.Host = ws.host
 		value, err := json.Marshal(message)
@@ -70,4 +57,17 @@ func createTopic(conf *kafka.ConfigMap) error {
 	})
 
 	return err
+}
+
+func (ws *wsSrv) GetProducerEventsKafka() {
+	for e := range ws.wsKafka.Producer.Events() {
+		switch ev := e.(type) {
+		case *kafka.Message:
+			if ev.TopicPartition.Error != nil {
+				log.Printf("Delivery failed: %v\n", ev.TopicPartition)
+			} else {
+				log.Printf("Delivered message to %v\n", ev.TopicPartition)
+			}
+		}
+	}
 }

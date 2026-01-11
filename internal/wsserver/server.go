@@ -103,6 +103,8 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	go ws.controlClientsConn()
 	go ws.safeWrite()
+	go ws.GetProducerEventsKafka()
+	go ws.ReceiveKafka()
 	return ws.srv.ListenAndServeTLS("", "")
 }
 
@@ -133,7 +135,6 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	ws.connChan <- conn
 	go ws.safeRead(conn)
-	go ws.ReceiveKafka()
 }
 
 func (ws *wsSrv) controlClientsConn() {
