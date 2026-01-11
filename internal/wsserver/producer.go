@@ -9,7 +9,15 @@ import (
 )
 
 func NewProducer(address string) *kafka.Producer {
-	conf := &kafka.ConfigMap{"bootstrap.servers": address}
+	conf := &kafka.ConfigMap{
+		"bootstrap.servers":  address,
+		"acks":               "all",
+		"enable.idempotence": true,
+		"retries":            5,
+		"linger.ms":          5,
+		"batch.size":         65536, // 64 KB
+		"compression.type":   "lz4",
+	}
 	p, err := kafka.NewProducer(conf)
 	if err != nil {
 		panic(err)
@@ -33,8 +41,6 @@ func (ws *wsSrv) SendKafka(message *WsMessage) {
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 			Value:          value,
 		}, nil)
-
-		ws.wsKafka.Producer.Flush(15 * 1000)
 	}
 }
 

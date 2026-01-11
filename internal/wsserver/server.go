@@ -120,7 +120,11 @@ func (ws *wsSrv) Stop() error {
 		ws.connChan <- conn
 	}
 	ws.clients.mutex.Unlock()
-	log.Info("After close", ws.clients.wsClients)
+	log.Info("Clients list after close", ws.clients.wsClients)
+	ws.wsKafka.Producer.Flush(15 * 1000)
+	ws.wsKafka.Producer.Close()
+	ws.wsKafka.Consumer.Close()
+	log.Info("Kafka producer Flush done. Producer and consumer closed")
 	return ws.srv.Shutdown(context.Background())
 }
 
