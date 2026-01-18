@@ -58,9 +58,6 @@ services:
   webs2:
     image: websocket:latest
     container_name: websock2
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
     ports:
       - "8444:8443"
     restart: unless-stopped
