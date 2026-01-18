@@ -22,14 +22,15 @@ type WSServer interface {
 }
 
 type wsSrv struct {
-	mux       *http.ServeMux
-	srv       *http.Server
-	wsUpg     *websocket.Upgrader
-	broadcast chan *WsMessage
-	clients   clients
-	connChan  chan *websocket.Conn
-	wsKafka   Kafka
-	host      string
+	mux         *http.ServeMux
+	srv         *http.Server
+	wsUpg       *websocket.Upgrader
+	broadcast   chan *WsMessage
+	clients     clients
+	connChan    chan *websocket.Conn
+	delConnChan chan *websocket.Conn
+	wsKafka     Kafka
+	host        string
 }
 
 type clients struct {
@@ -101,7 +102,9 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	go ws.controlClientsConn()
+	//go ws.controlClientsConn()
+	go ws.addClientConn()
+	go ws.delClientConn()
 	go ws.safeWrite()
 	go ws.GetProducerEventsKafka()
 	go ws.ReceiveKafka()
@@ -116,8 +119,10 @@ func (ws *wsSrv) Stop() error {
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
+		// удаление соединений при остановке сервера
 		//delete(ws.clients.wsClients, conn)
-		ws.connChan <- conn
+		//ws.connChan <- conn
+		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.Unlock()
 	log.Info("Clients list after close", ws.clients.wsClients)
@@ -141,17 +146,38 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	go ws.safeRead(conn)
 }
 
-func (ws *wsSrv) controlClientsConn() {
+//func (ws *wsSrv) controlClientsConn() {
+//	for conn := range ws.connChan {
+//		ws.clients.mutex.Lock()
+//		// Если соединения нет в мапе, значит было создано новое
+//		if _, ok := ws.clients.wsClients[conn]; !ok {
+//			fmt.Println("СОЗДАЛИ")
+//			ws.clients.wsClients[conn] = struct{}{}
+//		} else { // иначе соединение отправлено для удаления
+//			fmt.Println("УДАЛИЛИ")
+//			delete(ws.clients.wsClients, conn)
+//		}
+//		ws.clients.mutex.Unlock()
+//	}
+//}
+
+func (ws *wsSrv) addClientConn() {
 	for conn := range ws.connChan {
 		ws.clients.mutex.Lock()
 		// Если соединения нет в мапе, значит было создано новое
 		if _, ok := ws.clients.wsClients[conn]; !ok {
-			fmt.Println("СОЗДАЛИ")
+			log.Println("Создано новое соединение")
 			ws.clients.wsClients[conn] = struct{}{}
-		} else { // иначе соединение отправлено для удаления
-			fmt.Println("УДАЛИЛИ")
-			delete(ws.clients.wsClients, conn)
 		}
+		ws.clients.mutex.Unlock()
+	}
+}
+
+func (ws *wsSrv) delClientConn() {
+	for conn := range ws.delConnChan {
+		ws.clients.mutex.Lock()
+		log.Println("Удалено соединение")
+		delete(ws.clients.wsClients, conn)
 		ws.clients.mutex.Unlock()
 	}
 }
@@ -200,7 +226,9 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
 	}
-	ws.connChan <- conn
+	// удаление соединения из мапы
+	//ws.connChan <- conn
+	ws.delConnChan <- conn
 }
 
 func (ws *wsSrv) safeWrite() {
