@@ -18,6 +18,7 @@ var (
 	keyFile     string
 	templateDir string
 	staticDir   string
+	useKafka    bool
 )
 
 func init() {
@@ -32,6 +33,8 @@ func init() {
 	keyFile = os.Getenv("KEY")
 	templateDir = os.Getenv("TEMPLATEDIR")
 	staticDir = os.Getenv("STATICDIR")
+	kafka := os.Getenv("KAFKA")
+	useKafka = kafka == "enable"
 }
 
 func main() {
@@ -44,12 +47,12 @@ func main() {
 		cancel()
 	}()
 
-	wsSrv := wsserver.NewWsServer(addr + port)
+	wsSrv := wsserver.NewWsServer(addr+port, useKafka)
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		log.Info("Started ws server")
-		return wsSrv.Start(certFile, keyFile, templateDir, staticDir)
+		return wsSrv.Start(certFile, keyFile, templateDir, staticDir, useKafka)
 	})
 
 	g.Go(func() error {

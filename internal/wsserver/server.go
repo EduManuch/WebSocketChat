@@ -17,7 +17,7 @@ import (
 )
 
 type WSServer interface {
-	Start(cert, key, templateDir, staticDir string) error
+	Start(cert, key, templateDir, staticDir string, useKafka bool) error
 	Stop() error
 }
 
@@ -43,12 +43,15 @@ type Kafka struct {
 	Consumer *kafka.Consumer
 }
 
-func NewWsServer(addr string) WSServer {
+func NewWsServer(addr string, useKafka bool) WSServer {
 	m := http.NewServeMux()
 	hostname, _ := os.Hostname()
-	k := Kafka{
-		Producer: NewProducer("kafka:9092"),
-		Consumer: NewConsumer("kafka:9092", hostname),
+	var k Kafka
+	if useKafka {
+		k = Kafka{
+			Producer: NewProducer("kafka:9092"),
+			Consumer: NewConsumer("kafka:9092", hostname),
+		}
 	}
 
 	return &wsSrv{
@@ -93,7 +96,7 @@ func NewWsServer(addr string) WSServer {
 	}
 }
 
-func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
+func (ws *wsSrv) Start(cert, key, templateDir, staticDir string, useKafka bool) error {
 	certPair, err := tls.LoadX509KeyPair(cert, key)
 	if err != nil {
 		return fmt.Errorf("failed certificate pair: %w", err)
@@ -105,9 +108,11 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string) error {
 	//go ws.controlClientsConn()
 	go ws.addClientConn()
 	go ws.delClientConn()
-	go ws.safeWrite()
-	go ws.GetProducerEventsKafka()
-	go ws.ReceiveKafka()
+	go ws.safeWrite(useKafka)
+	if useKafka {
+		go ws.GetProducerEventsKafka()
+		go ws.ReceiveKafka()
+	}
 	return ws.srv.ListenAndServeTLS("", "")
 }
 
@@ -203,7 +208,7 @@ func (ws *wsSrv) safeRead(conn *websocket.Conn) {
 func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("error in write worker : %v", r)
+			log.Errorf("error in read worker : %v", r)
 			c <- 1
 		}
 	}()
@@ -231,7 +236,7 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 	ws.delConnChan <- conn
 }
 
-func (ws *wsSrv) safeWrite() {
+func (ws *wsSrv) safeWrite(useKafka bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error launching write worker: %v", r)
@@ -240,7 +245,7 @@ func (ws *wsSrv) safeWrite() {
 
 	ch := make(chan int, 1)
 	goFunc := func() {
-		ws.writeToClientsBroadCast(ch)
+		ws.writeToClientsBroadCast(ch, useKafka)
 	}
 
 	ch <- 1
@@ -249,7 +254,7 @@ func (ws *wsSrv) safeWrite() {
 	}
 }
 
-func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
+func (ws *wsSrv) writeToClientsBroadCast(c chan<- int, useKafka bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error in write worker : %v", r)
@@ -265,7 +270,7 @@ func (ws *wsSrv) writeToClientsBroadCast(c chan<- int) {
 				ws.clients.mutex.Lock()
 				delete(ws.clients.wsClients, client)
 				ws.clients.mutex.Unlock()
-			} else {
+			} else if useKafka {
 				ws.SendKafka(msg)
 			}
 		}
