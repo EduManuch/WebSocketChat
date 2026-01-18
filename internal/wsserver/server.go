@@ -18,7 +18,7 @@ import (
 
 type WSServer interface {
 	Start(cert, key, templateDir, staticDir string, useKafka bool) error
-	Stop() error
+	Stop(useKafka bool) error
 }
 
 type wsSrv struct {
@@ -116,7 +116,7 @@ func (ws *wsSrv) Start(cert, key, templateDir, staticDir string, useKafka bool) 
 	return ws.srv.ListenAndServeTLS("", "")
 }
 
-func (ws *wsSrv) Stop() error {
+func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Info("Before close", ws.clients.wsClients)
 	close(ws.broadcast)
 	ws.clients.mutex.Lock()
@@ -131,10 +131,12 @@ func (ws *wsSrv) Stop() error {
 	}
 	ws.clients.mutex.Unlock()
 	log.Info("Clients list after close", ws.clients.wsClients)
-	ws.wsKafka.Producer.Flush(15 * 1000)
-	ws.wsKafka.Consumer.Close()
-	ws.wsKafka.Producer.Close()
-	log.Info("Kafka producer Flush done. Producer and consumer closed")
+	if useKafka {
+		ws.wsKafka.Producer.Flush(15 * 1000)
+		ws.wsKafka.Consumer.Close()
+		ws.wsKafka.Producer.Close()
+		log.Info("Kafka producer Flush done. Producer and consumer closed")
+	}
 	return ws.srv.Shutdown(context.Background())
 }
 

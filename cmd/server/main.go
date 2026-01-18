@@ -57,7 +57,7 @@ func main() {
 
 	g.Go(func() error {
 		<-gCtx.Done()
-		return wsSrv.Stop()
+		return wsSrv.Stop(useKafka)
 	})
 
 	if err := g.Wait(); err != nil {
