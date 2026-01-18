@@ -90,9 +90,10 @@ func NewWsServer(addr string, useKafka bool) WSServer {
 			mutex:     &sync.RWMutex{},
 			wsClients: map[*websocket.Conn]struct{}{},
 		},
-		connChan: make(chan *websocket.Conn, 1),
-		wsKafka:  k,
-		host:     hostname,
+		connChan:    make(chan *websocket.Conn, 1),
+		delConnChan: make(chan *websocket.Conn),
+		wsKafka:     k,
+		host:        hostname,
 	}
 }
 
@@ -235,7 +236,7 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 	}
 	// удаление соединения из мапы
 	//ws.connChan <- conn
-	ws.delConnChan <- conn
+	//ws.delConnChan <- conn
 }
 
 func (ws *wsSrv) safeWrite(useKafka bool) {
