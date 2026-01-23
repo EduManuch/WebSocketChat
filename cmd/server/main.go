@@ -11,15 +11,7 @@ import (
 	"syscall"
 )
 
-var (
-	addr        string
-	port        string
-	certFile    string
-	keyFile     string
-	templateDir string
-	staticDir   string
-	useKafka    bool
-)
+var envs = wsserver.EnvConfig{}
 
 func init() {
 	err := godotenv.Load()
@@ -27,14 +19,16 @@ func init() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	addr = os.Getenv("ADDR")
-	port = os.Getenv("PORT")
-	certFile = os.Getenv("CERT")
-	keyFile = os.Getenv("KEY")
-	templateDir = os.Getenv("TEMPLATEDIR")
-	staticDir = os.Getenv("STATICDIR")
+	envs.Addr = os.Getenv("ADDR")
+	envs.Port = os.Getenv("PORT")
+	ssl := os.Getenv("SSL")
+	envs.UseSsl = ssl == "enable"
+	envs.CertFile = os.Getenv("CERT")
+	envs.KeyFile = os.Getenv("KEY")
+	envs.TemplateDir = os.Getenv("TEMPLATEDIR")
+	envs.StaticDir = os.Getenv("STATICDIR")
 	kafka := os.Getenv("KAFKA")
-	useKafka = kafka == "enable"
+	envs.UseKafka = kafka == "enable"
 }
 
 func main() {
@@ -47,17 +41,18 @@ func main() {
 		cancel()
 	}()
 
-	wsSrv := wsserver.NewWsServer(addr+port, useKafka)
+	wsSrv := wsserver.NewWsServer(envs.Addr+envs.Port, envs.UseKafka)
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		log.Info("Started ws server")
-		return wsSrv.Start(certFile, keyFile, templateDir, staticDir, useKafka)
+		//return wsSrv.Start(certFile, keyFile, templateDir, staticDir, useKafka)
+		return wsSrv.Start(&envs)
 	})
 
 	g.Go(func() error {
 		<-gCtx.Done()
-		return wsSrv.Stop(useKafka)
+		return wsSrv.Stop(envs.UseKafka)
 	})
 
 	if err := g.Wait(); err != nil {

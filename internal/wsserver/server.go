@@ -17,8 +17,18 @@ import (
 )
 
 type WSServer interface {
-	Start(cert, key, templateDir, staticDir string, useKafka bool) error
+	Start(e *EnvConfig) error
 	Stop(useKafka bool) error
+}
+type EnvConfig struct {
+	Addr        string
+	Port        string
+	UseSsl      bool
+	CertFile    string
+	KeyFile     string
+	TemplateDir string
+	StaticDir   string
+	UseKafka    bool
 }
 
 type wsSrv struct {
@@ -97,20 +107,19 @@ func NewWsServer(addr string, useKafka bool) WSServer {
 	}
 }
 
-func (ws *wsSrv) Start(cert, key, templateDir, staticDir string, useKafka bool) error {
-	certPair, err := tls.LoadX509KeyPair(cert, key)
+func (ws *wsSrv) Start(e *EnvConfig) error {
+	certPair, err := tls.LoadX509KeyPair(e.CertFile, e.KeyFile)
 	if err != nil {
 		return fmt.Errorf("failed certificate pair: %w", err)
 	}
 	ws.srv.TLSConfig.Certificates = append(ws.srv.TLSConfig.Certificates, certPair)
-	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
-	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
+	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
-	//go ws.controlClientsConn()
 	go ws.addClientConn()
 	go ws.delClientConn()
-	go ws.safeWrite(useKafka)
-	if useKafka {
+	go ws.safeWrite(e.UseKafka)
+	if e.UseKafka {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
 	}
@@ -125,9 +134,6 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
-		// удаление соединений при остановке сервера
-		//delete(ws.clients.wsClients, conn)
-		//ws.connChan <- conn
 		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.Unlock()
@@ -153,21 +159,6 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	ws.connChan <- conn
 	go ws.safeRead(conn)
 }
-
-//func (ws *wsSrv) controlClientsConn() {
-//	for conn := range ws.connChan {
-//		ws.clients.mutex.Lock()
-//		// Если соединения нет в мапе, значит было создано новое
-//		if _, ok := ws.clients.wsClients[conn]; !ok {
-//			fmt.Println("СОЗДАЛИ")
-//			ws.clients.wsClients[conn] = struct{}{}
-//		} else { // иначе соединение отправлено для удаления
-//			fmt.Println("УДАЛИЛИ")
-//			delete(ws.clients.wsClients, conn)
-//		}
-//		ws.clients.mutex.Unlock()
-//	}
-//}
 
 func (ws *wsSrv) addClientConn() {
 	for conn := range ws.connChan {
@@ -234,9 +225,6 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 		msg.Time = time.Now().Format("15:04")
 		ws.broadcast <- msg
 	}
-	// удаление соединения из мапы
-	//ws.connChan <- conn
-	//ws.delConnChan <- conn
 }
 
 func (ws *wsSrv) safeWrite(useKafka bool) {
