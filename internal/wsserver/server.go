@@ -69,16 +69,6 @@ func NewWsServer(addr string, useKafka bool) WSServer {
 		srv: &http.Server{
 			Addr:    addr,
 			Handler: m,
-			TLSConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				MaxVersion: tls.VersionTLS12,
-				CipherSuites: []uint16{
-					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-				},
-			},
 		},
 		wsUpg: &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -108,11 +98,6 @@ func NewWsServer(addr string, useKafka bool) WSServer {
 }
 
 func (ws *wsSrv) Start(e *EnvConfig) error {
-	certPair, err := tls.LoadX509KeyPair(e.CertFile, e.KeyFile)
-	if err != nil {
-		return fmt.Errorf("failed certificate pair: %w", err)
-	}
-	ws.srv.TLSConfig.Certificates = append(ws.srv.TLSConfig.Certificates, certPair)
 	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
@@ -123,7 +108,26 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
 	}
-	return ws.srv.ListenAndServeTLS("", "")
+
+	if e.UseSsl {
+		certPair, err := tls.LoadX509KeyPair(e.CertFile, e.KeyFile)
+		if err != nil {
+			return fmt.Errorf("failed certificate pair: %w", err)
+		}
+		ws.srv.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			},
+			Certificates: []tls.Certificate{certPair},
+		}
+		return ws.srv.ListenAndServeTLS("", "")
+	}
+	return ws.srv.ListenAndServe()
 }
 
 func (ws *wsSrv) Stop(useKafka bool) error {
