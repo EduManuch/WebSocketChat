@@ -27,6 +27,7 @@ up: ## собрать и запустить всё окружение
 	@echo "\n🚀 App stack started"
 	@echo "   - Websocket sever 1: https://localhost:8443"
 	@echo "   - Websocket sever 2: https://localhost:8444"
+	@echo "   - Nginx balancer:    https://localhost"
 
 start: ## запустить окружение без пересборки
 	$(COMPOSE) start
