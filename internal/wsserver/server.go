@@ -29,6 +29,7 @@ type EnvConfig struct {
 	TemplateDir string
 	StaticDir   string
 	UseKafka    bool
+	Origins     map[string]struct{}
 }
 
 type wsSrv struct {
@@ -53,17 +54,18 @@ type Kafka struct {
 	Consumer *kafka.Consumer
 }
 
-func NewWsServer(addr string, useKafka bool) WSServer {
+func NewWsServer(e *EnvConfig) WSServer {
 	m := http.NewServeMux()
 	hostname, _ := os.Hostname()
 	var k Kafka
-	if useKafka {
+	if e.UseKafka {
 		k = Kafka{
 			Producer: NewProducer("kafka:9092"),
 			Consumer: NewConsumer("kafka:9092", hostname),
 		}
 	}
 
+	addr := e.Addr + e.Port
 	return &wsSrv{
 		mux: m,
 		srv: &http.Server{
@@ -77,12 +79,8 @@ func NewWsServer(addr string, useKafka bool) WSServer {
 				if err != nil {
 					return false
 				}
-				switch addrUrl.Host { // тут разрешаем соединение из списка хостов
-				case addr, "127.0.0.1:8443", "127.0.0.1:8444", "localhost:8443", "localhost:8444":
-					return true
-				default:
-					return false
-				}
+				_, ok := e.Origins[addrUrl.Host]
+				return ok
 			},
 		},
 		broadcast: make(chan *WsMessage),

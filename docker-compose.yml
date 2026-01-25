@@ -67,6 +67,19 @@ services:
     networks:
       - websocknet
 
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./certs/:/etc/nginx/certs/
+    depends_on:
+      - webs1
+      - webs2
+    networks:
+      - websocknet
+
 networks:
   websocknet:
     name: websocknet

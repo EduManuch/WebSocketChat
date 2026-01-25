@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -21,7 +22,7 @@ func init() {
 
 	envs.Addr = os.Getenv("ADDR")
 	envs.Port = os.Getenv("PORT")
-	ssl := os.Getenv("SSL")
+	ssl := os.Getenv("BACKEND_SSL")
 	envs.UseSsl = ssl == "enable"
 	envs.CertFile = os.Getenv("CERT")
 	envs.KeyFile = os.Getenv("KEY")
@@ -29,6 +30,12 @@ func init() {
 	envs.StaticDir = os.Getenv("STATICDIR")
 	kafka := os.Getenv("KAFKA")
 	envs.UseKafka = kafka == "enable"
+	strOrigins := os.Getenv("BACKEND_ORIGINS")
+	slOrigins := strings.Split(strOrigins, ",")
+	envs.Origins = make(map[string]struct{})
+	for _, s := range slOrigins {
+		envs.Origins[s] = struct{}{}
+	}
 }
 
 func main() {
@@ -41,12 +48,11 @@ func main() {
 		cancel()
 	}()
 
-	wsSrv := wsserver.NewWsServer(envs.Addr+envs.Port, envs.UseKafka)
+	wsSrv := wsserver.NewWsServer(&envs)
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		log.Info("Started ws server")
-		//return wsSrv.Start(certFile, keyFile, templateDir, staticDir, useKafka)
 		return wsSrv.Start(&envs)
 	})
 
