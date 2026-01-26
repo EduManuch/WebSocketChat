@@ -22,8 +22,8 @@ func init() {
 
 	envs.Addr = os.Getenv("ADDR")
 	envs.Port = os.Getenv("PORT")
-	ssl := os.Getenv("BACKEND_SSL")
-	envs.UseSsl = ssl == "enable"
+	tls := os.Getenv("BACKEND_TLS")
+	envs.UseTls = tls == "enable"
 	envs.CertFile = os.Getenv("CERT")
 	envs.KeyFile = os.Getenv("KEY")
 	envs.TemplateDir = os.Getenv("TEMPLATEDIR")

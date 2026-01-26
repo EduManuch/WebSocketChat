@@ -23,7 +23,7 @@ type WSServer interface {
 type EnvConfig struct {
 	Addr        string
 	Port        string
-	UseSsl      bool
+	UseTls      bool
 	CertFile    string
 	KeyFile     string
 	TemplateDir string
@@ -107,7 +107,7 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 		go ws.ReceiveKafka()
 	}
 
-	if e.UseSsl {
+	if e.UseTls {
 		certPair, err := tls.LoadX509KeyPair(e.CertFile, e.KeyFile)
 		if err != nil {
 			return fmt.Errorf("failed certificate pair: %w", err)

@@ -32,6 +32,8 @@ WebSocketChat/
 │       ├── producer.go    # Приём сообщений
 │       ├── consumer.go    # Рассылка сообщений
 │       └── dto.go         # DTO и модели
+├── nginx/
+│   └── nginx.conf
 ├── web/
 │   ├── templates/         # HTML шаблоны
 │   └── static/            # JS / CSS
@@ -45,7 +47,7 @@ WebSocketChat/
 ### Message Flow
 
 ```
-Client → WebSocket → Producer → Channel → Consumer → Clients
+Client → Nginx → WebSocket → Producer → Channel → Consumer → Clients
 ```
 
 Такой подход позволяет:
@@ -67,23 +69,12 @@ Client → WebSocket → Producer → Channel → Consumer → Clients
 ## 🔐 TLS (WSS)
 
 Поддерживается работа через `wss://` с self‑signed сертификатами.
-
+Включить использование TLS можно через переменную  
 ### Установка сертификатов (пример для Linux)
 ```bash
 sudo apt install mkcert
 mkcert -install
 mkcert 127.0.0.1
-```
-
-После этого:
-- добавьте сертификат в доверенные
-- замените в клиенте:
-```js
-new WebSocket('ws://...')
-```
-на:
-```js
-new WebSocket('wss://...')
 ```
 
 ---
