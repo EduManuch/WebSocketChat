@@ -69,7 +69,7 @@ Client → Nginx → WebSocket → Producer → Channel → Consumer → Clients
 ## 🔐 TLS (WSS)
 
 Поддерживается работа через `wss://` с self‑signed сертификатами.
-Включить использование TLS можно через переменную  
+Отключить использование TLS на стороне приложения можно через переменную `BACKEND_TLS` (включено по умолчанию)
 ### Установка сертификатов (пример для Linux)
 ```bash
 sudo apt install mkcert
@@ -108,7 +108,7 @@ make help
 После запуска сервисы будут доступны:
 - WebSocket server 1: https://localhost:8443
 - WebSocket server 2: https://localhost:8444
-
+- Nginx balancer:     https://localhost
 ---
 
 ### `make start`
@@ -172,6 +172,7 @@ go run cmd/server/main.go
 - Gorilla WebSocket
 - HTML / JavaScript
 - Docker
+- Nginx
 
 ---
 
