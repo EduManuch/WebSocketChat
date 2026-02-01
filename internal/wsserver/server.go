@@ -40,6 +40,7 @@ type wsSrv struct {
 	clients     clients
 	connChan    chan *websocket.Conn
 	delConnChan chan *websocket.Conn
+	delConnWG   sync.WaitGroup
 	wsKafka     Kafka
 	host        string
 }
@@ -86,7 +87,7 @@ func NewWsServer(e *EnvConfig) WSServer {
 		broadcast: make(chan *WsMessage),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
-			wsClients: map[*websocket.Conn]struct{}{},
+			wsClients: make(map[*websocket.Conn]struct{}, 100),
 		},
 		connChan:    make(chan *websocket.Conn, 1),
 		delConnChan: make(chan *websocket.Conn),
@@ -133,16 +134,18 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	close(ws.broadcast)
 	ws.clients.mutex.Lock()
 	for conn := range ws.clients.wsClients {
-		if err := conn.Close(); err != nil {
-			log.Errorf("Error with closing: %v", err)
-		}
+		ws.delConnWG.Add(1)
 		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.Unlock()
+	ws.delConnWG.Wait()
 	log.Info("Clients list after close", ws.clients.wsClients)
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
-		ws.wsKafka.Consumer.Close()
+		err := ws.wsKafka.Consumer.Close()
+		if err != nil {
+			log.Error(err)
+		}
 		ws.wsKafka.Producer.Close()
 		log.Info("Kafka producer Flush done. Producer and consumer closed")
 	}
@@ -165,10 +168,9 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 func (ws *wsSrv) addClientConn() {
 	for conn := range ws.connChan {
 		ws.clients.mutex.Lock()
-		// Если соединения нет в мапе, значит было создано новое
 		if _, ok := ws.clients.wsClients[conn]; !ok {
-			log.Println("Создано новое соединение")
 			ws.clients.wsClients[conn] = struct{}{}
+			log.Println("Создано новое соединение")
 		}
 		ws.clients.mutex.Unlock()
 	}
@@ -176,10 +178,12 @@ func (ws *wsSrv) addClientConn() {
 
 func (ws *wsSrv) delClientConn() {
 	for conn := range ws.delConnChan {
-		ws.clients.mutex.Lock()
-		log.Println("Удалено соединение")
 		delete(ws.clients.wsClients, conn)
-		ws.clients.mutex.Unlock()
+		if err := conn.Close(); err != nil {
+			log.Errorf("Error with closing: %v", err)
+		}
+		log.Println("Удалено соединение")
+		ws.delConnWG.Done()
 	}
 }
 
@@ -209,13 +213,23 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 		}
 	}()
 
+	var wsErr *websocket.CloseError
+	var opErr *net.OpError
 	for {
 		msg := new(WsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
-			var wsErr *websocket.CloseError
-			ok := errors.As(err, &wsErr)
-			if !ok || wsErr.Code != websocket.CloseGoingAway {
-				log.Errorf("Error with reading from Websocket: %v", err)
+			switch {
+			case errors.As(err, &wsErr):
+				if wsErr.Code != websocket.CloseGoingAway {
+					log.Errorf("Error with reading from Websocket: %v", err)
+				}
+				ws.clients.mutex.Lock()
+				ws.delConnWG.Add(1)
+				ws.delConnChan <- conn
+				ws.clients.mutex.Unlock()
+				ws.delConnWG.Wait()
+			case errors.As(err, &opErr):
+				log.Errorf("OpError with reading from Websocket: %v", err)
 			}
 			break
 		}

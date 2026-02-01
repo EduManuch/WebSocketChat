@@ -80,6 +80,28 @@ services:
     networks:
       - websocknet
 
+  prometheus:
+    image: ubuntu/prometheus:3-24.04_stable
+    environment:
+      TZ: UTC
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus_data/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - websocknet
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=123
+    volumes:
+      - ./grafana_data:/var/lib/grafana
+    networks:
+      - websocknet
+
 networks:
   websocknet:
     name: websocknet
