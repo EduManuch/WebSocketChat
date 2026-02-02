@@ -3,10 +3,11 @@ package wsserver
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/http"
@@ -40,7 +41,6 @@ type wsSrv struct {
 	clients     clients
 	connChan    chan *websocket.Conn
 	delConnChan chan *websocket.Conn
-	delConnWG   sync.WaitGroup
 	wsKafka     Kafka
 	host        string
 }
@@ -50,6 +50,15 @@ type clients struct {
 	wsClients map[*websocket.Conn]struct{}
 }
 
+var (
+	wsActiveConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_active_connections",
+			Help: " Websocket active connections",
+		},
+	)
+)
+
 type Kafka struct {
 	Producer *kafka.Producer
 	Consumer *kafka.Consumer
@@ -57,6 +66,10 @@ type Kafka struct {
 
 func NewWsServer(e *EnvConfig) WSServer {
 	m := http.NewServeMux()
+
+	prometheus.MustRegister(wsActiveConnections)
+	wsActiveConnections.Set(0)
+
 	hostname, _ := os.Hostname()
 	var k Kafka
 	if e.UseKafka {
@@ -87,10 +100,10 @@ func NewWsServer(e *EnvConfig) WSServer {
 		broadcast: make(chan *WsMessage),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
-			wsClients: make(map[*websocket.Conn]struct{}, 100),
+			wsClients: make(map[*websocket.Conn]struct{}, 1000),
 		},
 		connChan:    make(chan *websocket.Conn, 1),
-		delConnChan: make(chan *websocket.Conn),
+		delConnChan: make(chan *websocket.Conn, 1000),
 		wsKafka:     k,
 		host:        hostname,
 	}
@@ -100,9 +113,10 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
+	ws.mux.Handle("/metrics", promhttp.Handler())
 	go ws.addClientConn()
 	go ws.delClientConn()
-	go ws.safeWrite(e.UseKafka)
+	go ws.writeToClientsBroadCast(e.UseKafka)
 	if e.UseKafka {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
@@ -132,13 +146,11 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Info("Before close", ws.clients.wsClients)
 	close(ws.broadcast)
-	ws.clients.mutex.Lock()
+	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
-		ws.delConnWG.Add(1)
 		ws.delConnChan <- conn
 	}
-	ws.clients.mutex.Unlock()
-	ws.delConnWG.Wait()
+	ws.clients.mutex.RUnlock()
 	log.Info("Clients list after close", ws.clients.wsClients)
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
@@ -162,7 +174,7 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	log.Infof("Client with address %s connected", conn.RemoteAddr().String())
 
 	ws.connChan <- conn
-	go ws.safeRead(conn)
+	go ws.readFromClient(conn)
 }
 
 func (ws *wsSrv) addClientConn() {
@@ -173,65 +185,36 @@ func (ws *wsSrv) addClientConn() {
 			log.Println("Создано новое соединение")
 		}
 		ws.clients.mutex.Unlock()
+		wsActiveConnections.Inc()
 	}
 }
 
 func (ws *wsSrv) delClientConn() {
 	for conn := range ws.delConnChan {
+		ws.clients.mutex.Lock()
 		delete(ws.clients.wsClients, conn)
+		ws.clients.mutex.Unlock()
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
 		log.Println("Удалено соединение")
-		ws.delConnWG.Done()
+		wsActiveConnections.Dec()
 	}
 }
 
-func (ws *wsSrv) safeRead(conn *websocket.Conn) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Errorf("error launching write worker: %v", r)
-		}
-	}()
-
-	ch := make(chan int, 1)
-	goFunc := func() {
-		ws.readFromClient(conn, ch)
-	}
-
-	ch <- 1
-	for _ = range ch {
-		go goFunc()
-	}
-}
-
-func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
+func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error in read worker : %v", r)
-			c <- 1
 		}
+		ws.delConnChan <- conn // client dead
 	}()
 
-	var wsErr *websocket.CloseError
-	var opErr *net.OpError
 	for {
 		msg := new(WsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
-			switch {
-			case errors.As(err, &wsErr):
-				if wsErr.Code != websocket.CloseGoingAway {
-					log.Errorf("Error with reading from Websocket: %v", err)
-				}
-				ws.clients.mutex.Lock()
-				ws.delConnWG.Add(1)
-				ws.delConnChan <- conn
-				ws.clients.mutex.Unlock()
-				ws.delConnWG.Wait()
-			case errors.As(err, &opErr):
-				log.Errorf("OpError with reading from Websocket: %v", err)
-			}
-			break
+			log.Debugf("Client disconnetced: %v", err)
+			return
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 		if err != nil {
@@ -243,40 +226,19 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn, c chan<- int) {
 	}
 }
 
-func (ws *wsSrv) safeWrite(useKafka bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Errorf("error launching write worker: %v", r)
-		}
-	}()
-
-	ch := make(chan int, 1)
-	goFunc := func() {
-		ws.writeToClientsBroadCast(ch, useKafka)
-	}
-
-	ch <- 1
-	for _ = range ch {
-		go goFunc()
-	}
-}
-
-func (ws *wsSrv) writeToClientsBroadCast(c chan<- int, useKafka bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Errorf("error in write worker : %v", r)
-			ws.clients.mutex.Unlock()
-			c <- 1
-		}
-	}()
-
+func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
 	for msg := range ws.broadcast {
+		ws.clients.mutex.RLock()
+		sClients := make([]*websocket.Conn, 0, len(ws.clients.wsClients))
 		for client := range ws.clients.wsClients {
+			sClients = append(sClients, client)
+		}
+		ws.clients.mutex.RUnlock()
+
+		for _, client := range sClients {
 			if err := client.WriteJSON(msg); err != nil {
 				log.Errorf("Error with writing message: %v", err)
-				ws.clients.mutex.Lock()
-				delete(ws.clients.wsClients, client)
-				ws.clients.mutex.Unlock()
+				ws.delConnChan <- client
 			} else if useKafka {
 				ws.SendKafka(msg)
 			}
