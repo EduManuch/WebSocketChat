@@ -97,13 +97,13 @@ func NewWsServer(e *EnvConfig) WSServer {
 				return ok
 			},
 		},
-		broadcast: make(chan *WsMessage),
+		broadcast: make(chan *WsMessage, 1024),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
-			wsClients: make(map[*websocket.Conn]struct{}, 1000),
+			wsClients: make(map[*websocket.Conn]struct{}, 1024),
 		},
-		connChan:    make(chan *websocket.Conn, 1),
-		delConnChan: make(chan *websocket.Conn, 1000),
+		connChan:    make(chan *websocket.Conn, 1024),
+		delConnChan: make(chan *websocket.Conn, 1024),
 		wsKafka:     k,
 		host:        hostname,
 	}
