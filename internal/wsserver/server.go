@@ -236,6 +236,7 @@ func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
 		ws.clients.mutex.RUnlock()
 
 		for _, client := range sClients {
+			_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := client.WriteJSON(msg); err != nil {
 				log.Errorf("Error with writing message: %v", err)
 				ws.delConnChan <- client
