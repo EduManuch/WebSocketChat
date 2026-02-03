@@ -36,6 +36,8 @@ func init() {
 	for _, s := range slOrigins {
 		envs.Origins[s] = struct{}{}
 	}
+	debugLevel := os.Getenv("DEBUG")
+	envs.Debug = debugLevel == "enable"
 }
 
 func main() {
@@ -62,6 +64,6 @@ func main() {
 	})
 
 	if err := g.Wait(); err != nil {
-		log.Printf("Shutdown server: %v\n", err)
+		log.Infof("Shutdown server: %v\n", err)
 	}
 }

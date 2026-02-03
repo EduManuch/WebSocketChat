@@ -31,6 +31,7 @@ type EnvConfig struct {
 	StaticDir   string
 	UseKafka    bool
 	Origins     map[string]struct{}
+	Debug       bool
 }
 
 type wsSrv struct {
@@ -69,6 +70,10 @@ func NewWsServer(e *EnvConfig) WSServer {
 
 	prometheus.MustRegister(wsActiveConnections)
 	wsActiveConnections.Set(0)
+
+	if e.Debug {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	hostname, _ := os.Hostname()
 	var k Kafka
@@ -144,14 +149,14 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 }
 
 func (ws *wsSrv) Stop(useKafka bool) error {
-	log.Info("Before close", ws.clients.wsClients)
+	log.Debug("Before close", ws.clients.wsClients)
 	close(ws.broadcast)
 	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
 		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.RUnlock()
-	log.Info("Clients list after close", ws.clients.wsClients)
+	log.Debug("Clients list after close", ws.clients.wsClients)
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
 		err := ws.wsKafka.Consumer.Close()
@@ -159,7 +164,7 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 			log.Error(err)
 		}
 		ws.wsKafka.Producer.Close()
-		log.Info("Kafka producer Flush done. Producer and consumer closed")
+		log.Debug("Kafka producer Flush done. Producer and consumer closed")
 	}
 	return ws.srv.Shutdown(context.Background())
 }
@@ -171,7 +176,7 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	log.Infof("Client with address %s connected", conn.RemoteAddr().String())
+	log.Debugf("Client with address %s connected", conn.RemoteAddr().String())
 
 	ws.connChan <- conn
 	go ws.readFromClient(conn)
@@ -182,7 +187,7 @@ func (ws *wsSrv) addClientConn() {
 		ws.clients.mutex.Lock()
 		if _, ok := ws.clients.wsClients[conn]; !ok {
 			ws.clients.wsClients[conn] = struct{}{}
-			log.Println("Создано новое соединение")
+			log.Debug("Создано новое соединение")
 		}
 		ws.clients.mutex.Unlock()
 		wsActiveConnections.Inc()
@@ -197,7 +202,7 @@ func (ws *wsSrv) delClientConn() {
 		if err := conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
-		log.Println("Удалено соединение")
+		log.Debug("Удалено соединение")
 		wsActiveConnections.Dec()
 	}
 }
