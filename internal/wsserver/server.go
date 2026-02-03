@@ -246,3 +246,6 @@ func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
 		}
 	}
 }
+
+// TODO: graceful shutdown addClientConn, delClientConn, readFromClient
+// TODO: pingPong
