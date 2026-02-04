@@ -70,9 +70,9 @@ func (ws *wsSrv) GetProducerEventsKafka() {
 		switch ev := e.(type) {
 		case *kafka.Message:
 			if ev.TopicPartition.Error != nil {
-				log.Printf("Delivery failed: %v\n", ev.TopicPartition)
+				log.Errorf("Delivery failed: %v\n", ev.TopicPartition)
 			} else {
-				log.Printf("Delivered message to %v\n", ev.TopicPartition)
+				log.Debugf("Delivered message to %v\n", ev.TopicPartition)
 			}
 		}
 	}

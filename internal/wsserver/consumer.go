@@ -31,7 +31,6 @@ func (ws *wsSrv) ReceiveKafka() {
 	for {
 		message, err := ws.wsKafka.Consumer.ReadMessage(time.Second)
 		if err == nil {
-			//log.Printf("Message on %s: %s\n", msg.TopicPartition, string(msg.Value))
 			msg := new(WsMessage)
 			err = json.Unmarshal(message.Value, msg)
 			if err != nil {
@@ -42,7 +41,7 @@ func (ws *wsSrv) ReceiveKafka() {
 			}
 			ws.broadcast <- msg
 		} else if !err.(kafka.Error).IsTimeout() {
-			log.Printf("Consumer error: %v (%v)\n", err, message)
+			log.Errorf("Consumer error: %v (%v)\n", err, message)
 		}
 	}
 }
