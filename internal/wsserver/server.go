@@ -40,15 +40,28 @@ type wsSrv struct {
 	wsUpg       *websocket.Upgrader
 	broadcast   chan *WsMessage
 	clients     clients
-	connChan    chan *websocket.Conn
-	delConnChan chan *websocket.Conn
+	connChan    chan *sClient //*websocket.Conn
+	delConnChan chan *sClient //*websocket.Conn
 	wsKafka     Kafka
 	host        string
 }
 
 type clients struct {
 	mutex     *sync.RWMutex
-	wsClients map[*websocket.Conn]struct{}
+	wsClients map[*sClient]struct{} //map[*websocket.Conn]struct{}
+}
+
+type sClient struct {
+	conn *websocket.Conn
+	once sync.Once
+}
+
+func (c *sClient) Close() {
+	c.once.Do(func() {
+		if err := c.conn.Close(); err != nil {
+			log.Errorf("Error with closing: %v", err)
+		}
+	})
 }
 
 var (
@@ -105,10 +118,10 @@ func NewWsServer(e *EnvConfig) WSServer {
 		broadcast: make(chan *WsMessage, 1024),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
-			wsClients: make(map[*websocket.Conn]struct{}, 1024),
+			wsClients: make(map[*sClient]struct{}, 1024),
 		},
-		connChan:    make(chan *websocket.Conn, 1024),
-		delConnChan: make(chan *websocket.Conn, 1024),
+		connChan:    make(chan *sClient, 1024),
+		delConnChan: make(chan *sClient, 1024),
 		wsKafka:     k,
 		host:        hostname,
 	}
@@ -178,8 +191,9 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugf("Client with address %s connected", conn.RemoteAddr().String())
 
-	ws.connChan <- conn
-	go ws.readFromClient(conn)
+	client := &sClient{conn: conn}
+	ws.connChan <- client
+	go ws.readFromClient(client)
 }
 
 func (ws *wsSrv) addClientConn() {
@@ -195,33 +209,31 @@ func (ws *wsSrv) addClientConn() {
 }
 
 func (ws *wsSrv) delClientConn() {
-	for conn := range ws.delConnChan {
+	for client := range ws.delConnChan {
 		ws.clients.mutex.Lock()
-		delete(ws.clients.wsClients, conn)
+		delete(ws.clients.wsClients, client)
 		ws.clients.mutex.Unlock()
-		if err := conn.Close(); err != nil {
-			log.Errorf("Error with closing: %v", err)
-		}
+		client.Close()
 		log.Debug("Удалено соединение")
 		wsActiveConnections.Dec()
 	}
 }
 
-func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
+func (ws *wsSrv) readFromClient(c *sClient) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error in read worker : %v", r)
 		}
-		ws.delConnChan <- conn // client dead
+		ws.delConnChan <- c // client dead
 	}()
 
 	for {
 		msg := new(WsMessage)
-		if err := conn.ReadJSON(msg); err != nil {
+		if err := c.conn.ReadJSON(msg); err != nil {
 			log.Debugf("Client disconnetced: %v", err)
 			return
 		}
-		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+		host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
 		if err != nil {
 			log.Errorf("Error with address split: %v", err)
 		}
@@ -234,17 +246,17 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
 	for msg := range ws.broadcast {
 		ws.clients.mutex.RLock()
-		sClients := make([]*websocket.Conn, 0, len(ws.clients.wsClients))
+		sClients := make([]*sClient, 0, len(ws.clients.wsClients))
 		for client := range ws.clients.wsClients {
 			sClients = append(sClients, client)
 		}
 		ws.clients.mutex.RUnlock()
 
-		for _, client := range sClients {
-			_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := client.WriteJSON(msg); err != nil {
+		for _, c := range sClients {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := c.conn.WriteJSON(msg); err != nil {
 				log.Errorf("Error with writing message: %v", err)
-				ws.delConnChan <- client
+				ws.delConnChan <- c
 			} else if useKafka {
 				ws.SendKafka(msg)
 			}
