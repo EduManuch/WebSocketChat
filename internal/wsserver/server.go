@@ -52,17 +52,26 @@ type clients struct {
 }
 
 type sClient struct {
-	conn *websocket.Conn
-	once sync.Once
+	conn   *websocket.Conn
+	once   sync.Once
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (c *sClient) Close() {
 	c.once.Do(func() {
+		c.cancel()
 		if err := c.conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
 		}
 	})
 }
+
+const (
+	pongWait   = 10 * time.Second
+	pingPeriod = 8 * time.Second
+	writeWait  = 5 * time.Second
+)
 
 var (
 	wsActiveConnections = prometheus.NewGauge(
@@ -124,6 +133,15 @@ func NewWsServer(e *EnvConfig) WSServer {
 		delConnChan: make(chan *sClient, 1024),
 		wsKafka:     k,
 		host:        hostname,
+	}
+}
+
+func newClient(conn *websocket.Conn) *sClient {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &sClient{
+		conn:   conn,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
@@ -191,9 +209,10 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugf("Client with address %s connected", conn.RemoteAddr().String())
 
-	client := &sClient{conn: conn}
+	client := newClient(conn) //&sClient{conn: conn}
 	ws.connChan <- client
 	go ws.readFromClient(client)
+	go ws.pingLoop(client)
 }
 
 func (ws *wsSrv) addClientConn() {
@@ -211,11 +230,13 @@ func (ws *wsSrv) addClientConn() {
 func (ws *wsSrv) delClientConn() {
 	for client := range ws.delConnChan {
 		ws.clients.mutex.Lock()
-		delete(ws.clients.wsClients, client)
+		if _, ok := ws.clients.wsClients[client]; ok {
+			delete(ws.clients.wsClients, client)
+			wsActiveConnections.Dec()
+			log.Debug("Удалено соединение")
+		}
 		ws.clients.mutex.Unlock()
 		client.Close()
-		log.Debug("Удалено соединение")
-		wsActiveConnections.Dec()
 	}
 }
 
@@ -227,19 +248,33 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 		ws.delConnChan <- c // client dead
 	}()
 
+	c.conn.SetReadLimit(512 * 1024)
+	err := c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err != nil {
+		log.Error(err)
+	}
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	for {
-		msg := new(WsMessage)
-		if err := c.conn.ReadJSON(msg); err != nil {
-			log.Debugf("Client disconnetced: %v", err)
+		select {
+		case <-c.ctx.Done():
 			return
+		default:
+			msg := new(WsMessage)
+			if err := c.conn.ReadJSON(msg); err != nil {
+				log.Debugf("Client disconnetced: %v", err)
+				return
+			}
+			host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
+			if err != nil {
+				log.Errorf("Error with address split: %v", err)
+			}
+			msg.IPAddress = host
+			msg.Time = time.Now().Format("15:04")
+			ws.broadcast <- msg
 		}
-		host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
-		if err != nil {
-			log.Errorf("Error with address split: %v", err)
-		}
-		msg.IPAddress = host
-		msg.Time = time.Now().Format("15:04")
-		ws.broadcast <- msg
 	}
 }
 
@@ -260,6 +295,27 @@ func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
 			} else if useKafka {
 				ws.SendKafka(msg)
 			}
+		}
+	}
+}
+
+func (ws *wsSrv) pingLoop(c *sClient) {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		ws.delConnChan <- c
+	}()
+
+	for {
+		select {
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Debugf("Ping stopped: %v", err)
+				return
+			}
+		case <-c.ctx.Done():
+			return
 		}
 	}
 }
