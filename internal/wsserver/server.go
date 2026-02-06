@@ -258,8 +258,8 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 	})
 
 	for {
-		var msg *WsMessage
-		if err := c.conn.ReadJSON(msg); err != nil {
+		var msg WsMessage
+		if err := c.conn.ReadJSON(&msg); err != nil {
 			log.Debugf("Client disconnetced: %v", err)
 			return
 		}
@@ -268,7 +268,7 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			msg.IPAddress = host
 		}
 		msg.Time = time.Now().Format("15:04")
-		ws.broadcast <- msg
+		ws.broadcast <- &msg
 	}
 }
 
