@@ -258,23 +258,18 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 	})
 
 	for {
-		select {
-		case <-c.ctx.Done():
+		msg := new(WsMessage)
+		if err := c.conn.ReadJSON(msg); err != nil {
+			log.Debugf("Client disconnetced: %v", err)
 			return
-		default:
-			msg := new(WsMessage)
-			if err := c.conn.ReadJSON(msg); err != nil {
-				log.Debugf("Client disconnetced: %v", err)
-				return
-			}
-			host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
-			if err != nil {
-				log.Errorf("Error with address split: %v", err)
-			}
-			msg.IPAddress = host
-			msg.Time = time.Now().Format("15:04")
-			ws.broadcast <- msg
 		}
+		host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
+		if err != nil {
+			log.Errorf("Error with address split: %v", err)
+		}
+		msg.IPAddress = host
+		msg.Time = time.Now().Format("15:04")
+		ws.broadcast <- msg
 	}
 }
 
