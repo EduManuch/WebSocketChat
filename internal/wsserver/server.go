@@ -56,6 +56,7 @@ type sClient struct {
 	once   sync.Once
 	ctx    context.Context
 	cancel context.CancelFunc
+	send   chan *WsMessage
 }
 
 func (c *sClient) Close() {
@@ -142,6 +143,7 @@ func newClient(conn *websocket.Conn) *sClient {
 		conn:   conn,
 		ctx:    ctx,
 		cancel: cancel,
+		send:   make(chan *WsMessage, 256),
 	}
 }
 
@@ -152,7 +154,7 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	ws.mux.Handle("/metrics", promhttp.Handler())
 	go ws.addClientConn()
 	go ws.delClientConn()
-	go ws.writeToClientsBroadCast(e.UseKafka)
+	go ws.readFromBroadCastWriteToClients(e.UseKafka)
 	if e.UseKafka {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
@@ -209,10 +211,10 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugf("Client with address %s connected", conn.RemoteAddr().String())
 
-	client := newClient(conn) //&sClient{conn: conn}
+	client := newClient(conn)
 	ws.connChan <- client
 	go ws.readFromClient(client)
-	go ws.pingLoop(client)
+	go ws.writeToClient(client)
 }
 
 func (ws *wsSrv) addClientConn() {
@@ -272,28 +274,7 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 	}
 }
 
-func (ws *wsSrv) writeToClientsBroadCast(useKafka bool) {
-	for msg := range ws.broadcast {
-		ws.clients.mutex.RLock()
-		sClients := make([]*sClient, 0, len(ws.clients.wsClients))
-		for client := range ws.clients.wsClients {
-			sClients = append(sClients, client)
-		}
-		ws.clients.mutex.RUnlock()
-
-		for _, c := range sClients {
-			_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := c.conn.WriteJSON(msg); err != nil {
-				log.Errorf("Error with writing message: %v", err)
-				ws.delConnChan <- c
-			} else if useKafka {
-				ws.SendKafka(msg)
-			}
-		}
-	}
-}
-
-func (ws *wsSrv) pingLoop(c *sClient) {
+func (ws *wsSrv) writeToClient(c *sClient) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -302,6 +283,15 @@ func (ws *wsSrv) pingLoop(c *sClient) {
 
 	for {
 		select {
+		case msg, ok := <-c.send:
+			if !ok {
+				return
+			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteJSON(msg); err != nil {
+				log.Errorf("Error with writing message: %v", err)
+				return
+			}
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -312,7 +302,31 @@ func (ws *wsSrv) pingLoop(c *sClient) {
 			return
 		}
 	}
+
+}
+
+func (ws *wsSrv) readFromBroadCastWriteToClients(useKafka bool) {
+	for msg := range ws.broadcast {
+		ws.clients.mutex.RLock()
+		sClients := make([]*sClient, 0, len(ws.clients.wsClients))
+		for client := range ws.clients.wsClients {
+			sClients = append(sClients, client)
+		}
+		ws.clients.mutex.RUnlock()
+
+		if useKafka {
+			ws.SendKafka(msg)
+		}
+
+		for _, c := range sClients {
+			select {
+			case c.send <- msg:
+			default:
+				ws.delConnChan <- c
+				log.Debugf("Error readFromBroadCastWriteToClients. Slow client")
+			}
+		}
+	}
 }
 
 // TODO: graceful shutdown addClientConn, delClientConn, readFromClient
-// TODO: pingPong
