@@ -183,23 +183,24 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 
 func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Debug("Before close", ws.clients.wsClients)
-	close(ws.broadcast)
+	err := ws.srv.Shutdown(context.Background())
+
 	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
 		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.RUnlock()
 	log.Debug("Clients list after close", ws.clients.wsClients)
+
+	close(ws.broadcast)
+
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
-		err := ws.wsKafka.Consumer.Close()
-		if err != nil {
-			log.Error(err)
-		}
+		_ = ws.wsKafka.Consumer.Close()
 		ws.wsKafka.Producer.Close()
 		log.Debug("Kafka producer Flush done. Producer and consumer closed")
 	}
-	return ws.srv.Shutdown(context.Background())
+	return err
 }
 
 func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
