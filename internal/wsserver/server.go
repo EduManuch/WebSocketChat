@@ -63,9 +63,7 @@ func (c *sClient) Close() {
 	c.once.Do(func() {
 		close(c.send)
 		c.cancel()
-		if err := c.conn.Close(); err != nil {
-			log.Errorf("Error with closing: %v", err)
-		}
+		_ = c.conn.Close()
 	})
 }
 
@@ -289,6 +287,11 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
+		_ = c.conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseMessage, ""),
+			time.Now().Add(writeWait),
+		)
 		// не блокироваться
 		select {
 		case ws.delConnChan <- c:
