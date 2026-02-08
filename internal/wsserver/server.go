@@ -62,7 +62,6 @@ type sClient struct {
 
 func (c *sClient) Close() {
 	c.once.Do(func() {
-		close(c.send)
 		c.cancel()
 		_ = c.conn.Close()
 	})
@@ -202,8 +201,6 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Debug("Clients list after close", ws.clients.wsClients)
 
 	close(ws.broadcast)
-	close(ws.connChan)
-	close(ws.delConnChan)
 	close(ws.kafkaChan)
 
 	if useKafka {
@@ -310,7 +307,7 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 		ticker.Stop()
 		_ = c.conn.WriteControl(
 			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseMessage, ""),
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			time.Now().Add(writeWait),
 		)
 		// не блокироваться
