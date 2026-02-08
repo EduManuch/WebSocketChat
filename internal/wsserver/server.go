@@ -81,6 +81,12 @@ var (
 			Help: " Websocket active connections",
 		},
 	)
+
+	kafkaDropped = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "kafka_dropped_messages_total",
+			Help: "Dropped Kafka messages due to backpressure",
+		})
 )
 
 type Kafka struct {
@@ -92,6 +98,7 @@ func NewWsServer(e *EnvConfig) WSServer {
 	m := http.NewServeMux()
 
 	prometheus.MustRegister(wsActiveConnections)
+	prometheus.MustRegister(kafkaDropped)
 	wsActiveConnections.Set(0)
 
 	if e.Debug {
@@ -290,6 +297,7 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			select {
 			case ws.kafkaChan <- &msg:
 			default:
+				kafkaDropped.Inc()
 				log.Warn("Kafka backlog overflow, dropping message")
 			}
 		}
