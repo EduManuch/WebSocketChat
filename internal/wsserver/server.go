@@ -193,6 +193,8 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Debug("Clients list after close", ws.clients.wsClients)
 
 	close(ws.broadcast)
+	close(ws.connChan)
+	close(ws.delConnChan)
 
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
