@@ -39,7 +39,6 @@ type wsSrv struct {
 	srv         *http.Server
 	wsUpg       *websocket.Upgrader
 	broadcast   chan *WsMessage
-	kafkaChan   chan *WsMessage
 	clients     clients
 	connChan    chan *sClient //*websocket.Conn
 	delConnChan chan *sClient //*websocket.Conn
@@ -89,8 +88,11 @@ var (
 )
 
 type Kafka struct {
-	Producer *kafka.Producer
-	Consumer *kafka.Consumer
+	Producer  *kafka.Producer
+	Consumer  *kafka.Consumer
+	kafkaChan chan *WsMessage
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 func NewWsServer(e *EnvConfig) WSServer {
@@ -107,9 +109,13 @@ func NewWsServer(e *EnvConfig) WSServer {
 	hostname, _ := os.Hostname()
 	var k Kafka
 	if e.UseKafka {
+		ctx, cancel := context.WithCancel(context.Background())
 		k = Kafka{
-			Producer: NewProducer("kafka:9092"),
-			Consumer: NewConsumer("kafka:9092", hostname),
+			Producer:  NewProducer("kafka:9092"),
+			Consumer:  NewConsumer("kafka:9092", hostname),
+			kafkaChan: make(chan *WsMessage, 1024),
+			ctx:       ctx,
+			cancel:    cancel,
 		}
 	}
 
@@ -132,7 +138,6 @@ func NewWsServer(e *EnvConfig) WSServer {
 			},
 		},
 		broadcast: make(chan *WsMessage, 1024),
-		kafkaChan: make(chan *WsMessage, 1024),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
 			wsClients: make(map[*sClient]struct{}, 1024),
@@ -161,7 +166,7 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	ws.mux.Handle("/metrics", promhttp.Handler())
 	go ws.addClientConn()
 	go ws.delClientConn()
-	go ws.readFromBroadCastWriteToClients(e.UseKafka)
+	go ws.readFromBroadCastWriteToClients()
 	if e.UseKafka {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
@@ -195,15 +200,18 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 
 	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
-		ws.delConnChan <- conn
+		select {
+		case ws.delConnChan <- conn:
+		default:
+		}
 	}
 	ws.clients.mutex.RUnlock()
 	log.Debug("Clients list after close", ws.clients.wsClients)
 
 	close(ws.broadcast)
-	close(ws.kafkaChan)
 
 	if useKafka {
+		ws.wsKafka.cancel()
 		ws.wsKafka.Producer.Flush(15 * 1000)
 		_ = ws.wsKafka.Consumer.Close()
 		ws.wsKafka.Producer.Close()
@@ -290,9 +298,10 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			return
 		}
 
-		if ws.wsKafka.Producer != nil {
+		if ws.wsKafka.kafkaChan != nil {
 			select {
-			case ws.kafkaChan <- &msg:
+			case ws.wsKafka.kafkaChan <- &msg:
+			case <-ws.wsKafka.ctx.Done():
 			default:
 				kafkaDropped.Inc()
 				log.Warn("Kafka backlog overflow, dropping message")
@@ -341,7 +350,7 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 
 }
 
-func (ws *wsSrv) readFromBroadCastWriteToClients(useKafka bool) {
+func (ws *wsSrv) readFromBroadCastWriteToClients() {
 	for msg := range ws.broadcast {
 		ws.clients.mutex.RLock()
 		sClients := make([]*sClient, 0, len(ws.clients.wsClients))
@@ -354,16 +363,27 @@ func (ws *wsSrv) readFromBroadCastWriteToClients(useKafka bool) {
 			select {
 			case c.send <- msg:
 			default:
-				ws.delConnChan <- c
-				log.Debugf("Error readFromBroadCastWriteToClients. Slow client")
+				select {
+				case ws.delConnChan <- c:
+					log.Debugf("Error readFromBroadCastWriteToClients. Slow client")
+				default:
+				}
 			}
 		}
 	}
 }
 
 func (ws *wsSrv) kafkaWorker() {
-	for msg := range ws.kafkaChan {
-		ws.SendKafka(msg)
+	for {
+		select {
+		case msg, ok := <-ws.wsKafka.kafkaChan:
+			if !ok {
+				return
+			}
+			ws.SendKafka(msg)
+		case <-ws.wsKafka.ctx.Done():
+			return
+		}
 	}
 }
 
