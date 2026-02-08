@@ -39,6 +39,7 @@ type wsSrv struct {
 	srv         *http.Server
 	wsUpg       *websocket.Upgrader
 	broadcast   chan *WsMessage
+	kafkaChan   chan *WsMessage
 	clients     clients
 	connChan    chan *sClient //*websocket.Conn
 	delConnChan chan *sClient //*websocket.Conn
@@ -125,6 +126,7 @@ func NewWsServer(e *EnvConfig) WSServer {
 			},
 		},
 		broadcast: make(chan *WsMessage, 1024),
+		kafkaChan: make(chan *WsMessage, 1024),
 		clients: clients{
 			mutex:     &sync.RWMutex{},
 			wsClients: make(map[*sClient]struct{}, 1024),
@@ -157,6 +159,7 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	if e.UseKafka {
 		go ws.GetProducerEventsKafka()
 		go ws.ReceiveKafka()
+		go ws.kafkaWorker()
 	}
 
 	if e.UseTls {
@@ -194,6 +197,7 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	close(ws.broadcast)
 	close(ws.connChan)
 	close(ws.delConnChan)
+	close(ws.kafkaChan)
 
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15 * 1000)
@@ -275,10 +279,19 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			msg.IPAddress = host
 		}
 		msg.Time = time.Now().Format("15:04")
+
 		select {
 		case ws.broadcast <- &msg:
 		case <-c.ctx.Done():
 			return
+		}
+
+		if ws.wsKafka.Producer != nil {
+			select {
+			case ws.kafkaChan <- &msg:
+			default:
+				log.Warn("Kafka backlog overflow, dropping message")
+			}
 		}
 	}
 }
@@ -332,10 +345,6 @@ func (ws *wsSrv) readFromBroadCastWriteToClients(useKafka bool) {
 		}
 		ws.clients.mutex.RUnlock()
 
-		if useKafka {
-			ws.SendKafka(msg)
-		}
-
 		for _, c := range sClients {
 			select {
 			case c.send <- msg:
@@ -344,6 +353,12 @@ func (ws *wsSrv) readFromBroadCastWriteToClients(useKafka bool) {
 				log.Debugf("Error readFromBroadCastWriteToClients. Slow client")
 			}
 		}
+	}
+}
+
+func (ws *wsSrv) kafkaWorker() {
+	for msg := range ws.kafkaChan {
+		ws.SendKafka(msg)
 	}
 }
 
