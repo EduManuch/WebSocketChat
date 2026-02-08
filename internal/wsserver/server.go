@@ -61,6 +61,7 @@ type sClient struct {
 
 func (c *sClient) Close() {
 	c.once.Do(func() {
+		close(c.send)
 		c.cancel()
 		if err := c.conn.Close(); err != nil {
 			log.Errorf("Error with closing: %v", err)
