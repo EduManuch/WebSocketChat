@@ -250,7 +250,10 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 		if r := recover(); r != nil {
 			log.Errorf("error in read worker : %v", r)
 		}
-		ws.delConnChan <- c // client dead
+		select {
+		case ws.delConnChan <- c: // client dead
+		default:
+		}
 	}()
 
 	c.conn.SetReadLimit(512 * 1024)
@@ -273,7 +276,11 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			msg.IPAddress = host
 		}
 		msg.Time = time.Now().Format("15:04")
-		ws.broadcast <- &msg
+		select {
+		case ws.broadcast <- &msg:
+		case <-c.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -281,7 +288,11 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		ws.delConnChan <- c
+		// не блокироваться
+		select {
+		case ws.delConnChan <- c:
+		default:
+		}
 	}()
 
 	for {
