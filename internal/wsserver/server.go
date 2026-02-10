@@ -63,8 +63,12 @@ func NewWsServer(e *EnvConfig) WSServer {
 	var k Kafka
 	if e.UseKafka {
 		ctx, cancel := context.WithCancel(context.Background())
+		producer, err := NewProducer("kafka:9092")
+		if err != nil {
+			log.Errorf("New producer error: %v", err)
+		}
 		k = Kafka{
-			Producer:  NewProducer("kafka:9092"),
+			Producer:  producer,
 			Consumer:  NewConsumer("kafka:9092", hostname),
 			kafkaChan: make(chan *WsMessage, 1024),
 			ctx:       ctx,
@@ -170,7 +174,7 @@ func (ws *wsSrv) kafkaWorker() {
 			if !ok {
 				return
 			}
-			ws.SendKafka(msg)
+			ws.sendToKafka(msg)
 		case <-ws.wsKafka.ctx.Done():
 			return
 		}

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func NewProducer(address string) *kafka.Producer {
+func NewProducer(address string) (*kafka.Producer, error) {
 	conf := &kafka.ConfigMap{
 		"bootstrap.servers":  address,
 		"acks":               "all",
@@ -24,23 +24,35 @@ func NewProducer(address string) *kafka.Producer {
 	}
 	err = createTopic(conf)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return p
+	return p, nil
 }
 
-func (ws *wsSrv) SendKafka(message *WsMessage) {
-	if message.Host == "" {
-		message.Host = ws.host
-		value, err := json.Marshal(message)
-		if err != nil {
-			log.Errorf("Error while marshaling message to json: %v", err)
-		}
-		topic := "web-topic"
-		ws.wsKafka.Producer.Produce(&kafka.Message{
-			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-			Value:          value,
-		}, nil)
+func (ws *wsSrv) sendToKafka(message *WsMessage) {
+	if message.Host != "" {
+		return
+	}
+
+	kafkaMsg := *message
+	kafkaMsg.Host = ws.host
+
+	value, err := json.Marshal(kafkaMsg)
+	if err != nil {
+		log.Errorf("Error while marshaling message to json: %v", err)
+		return
+	}
+
+	topic := "web-topic"
+	err = ws.wsKafka.Producer.Produce(&kafka.Message{
+		TopicPartition: kafka.TopicPartition{
+			Topic:     &topic,
+			Partition: kafka.PartitionAny},
+		Value: value,
+	}, nil)
+
+	if err != nil {
+		kafkaDropped.Inc()
 	}
 }
 
