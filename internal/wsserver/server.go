@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/gorilla/websocket"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
-	"time"
 )
 
 type WSServer interface {
@@ -45,27 +43,6 @@ type wsSrv struct {
 	host        string
 }
 
-const (
-	pongWait   = 10 * time.Second
-	pingPeriod = 8 * time.Second
-	writeWait  = 5 * time.Second
-)
-
-var (
-	wsActiveConnections = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "ws_active_connections",
-			Help: " Websocket active connections",
-		},
-	)
-
-	kafkaDropped = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "kafka_dropped_messages_total",
-			Help: "Dropped Kafka messages due to backpressure",
-		})
-)
-
 type Kafka struct {
 	Producer  *kafka.Producer
 	Consumer  *kafka.Consumer
@@ -76,10 +53,7 @@ type Kafka struct {
 
 func NewWsServer(e *EnvConfig) WSServer {
 	m := http.NewServeMux()
-
-	prometheus.MustRegister(wsActiveConnections)
-	prometheus.MustRegister(kafkaDropped)
-	wsActiveConnections.Set(0)
+	initMetrics()
 
 	if e.Debug {
 		log.SetLevel(log.DebugLevel)
