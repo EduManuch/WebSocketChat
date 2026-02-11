@@ -28,6 +28,28 @@ services:
     networks:
       - websocknet
 
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      - kafka
+    entrypoint:
+    - sh
+    - -c
+    - |
+      until kafka-topics --bootstrap-server kafka:9092 --list; do
+        echo waiting for kafka
+        sleep 2
+      done
+
+      kafka-topics --bootstrap-server kafka:9092 \
+      --create --if-not-exists \
+      --topic web-topic \
+      --partitions 1 \
+      --replication-factor 1
+    networks:
+      - websocknet
+
+
   kafka-ui:
     image: provectuslabs/kafka-ui
     ports:
