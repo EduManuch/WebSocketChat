@@ -18,7 +18,7 @@ func NewProducer(address string) (*kafka.Producer, error) {
 	}
 	p, err := kafka.NewProducer(conf)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return p, nil
 }
@@ -47,6 +47,7 @@ func (ws *wsSrv) sendToKafka(message *WsMessage) {
 
 	if err != nil {
 		kafkaDropped.Inc()
+		log.Errorf("Kafka produce error: %v", err)
 	}
 }
 
