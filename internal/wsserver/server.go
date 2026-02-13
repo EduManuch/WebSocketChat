@@ -119,8 +119,8 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	go ws.delClientConn()
 	go ws.readFromBroadCastWriteToClients()
 	if e.UseKafka {
-		go ws.GetProducerEventsKafka()
-		go ws.ReceiveKafka()
+		go ws.getProducerEventsKafka()
+		go ws.receiveKafka()
 		go ws.kafkaWorker()
 	}
 
