@@ -67,9 +67,13 @@ func NewWsServer(e *EnvConfig) WSServer {
 		if err != nil {
 			log.Errorf("New producer error: %v", err)
 		}
+		consumer, err := NewConsumer("kafka:9092", hostname)
+		if err != nil {
+			log.Errorf("New consumer error: %v", err)
+		}
 		k = Kafka{
 			Producer:  producer,
-			Consumer:  NewConsumer("kafka:9092", hostname),
+			Consumer:  consumer,
 			kafkaChan: make(chan *WsMessage, 1024),
 			ctx:       ctx,
 			cancel:    cancel,
