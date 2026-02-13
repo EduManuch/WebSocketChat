@@ -173,19 +173,3 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	}
 	return err
 }
-
-func (ws *wsSrv) kafkaWorker() {
-	for {
-		select {
-		case msg, ok := <-ws.wsKafka.kafkaChan:
-			if !ok {
-				return
-			}
-			ws.sendToKafka(msg)
-		case <-ws.wsKafka.ctx.Done():
-			return
-		}
-	}
-}
-
-// TODO: graceful shutdown addClientConn, delClientConn, readFromClient

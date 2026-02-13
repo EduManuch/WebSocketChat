@@ -126,3 +126,17 @@ func (ws *wsSrv) receiveKafka() {
 		}
 	}
 }
+
+func (ws *wsSrv) kafkaWorker() {
+	for {
+		select {
+		case msg, ok := <-ws.wsKafka.kafkaChan:
+			if !ok {
+				return
+			}
+			ws.sendToKafka(msg)
+		case <-ws.wsKafka.ctx.Done():
+			return
+		}
+	}
+}
