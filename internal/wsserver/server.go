@@ -149,6 +149,10 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	log.Debug("Before close", ws.clients.wsClients)
 	err := ws.srv.Shutdown(context.Background())
 
+	if useKafka {
+		ws.wsKafka.cancel()
+	}
+
 	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
 		select {
@@ -162,8 +166,7 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	close(ws.broadcast)
 
 	if useKafka {
-		ws.wsKafka.cancel()
-		ws.wsKafka.Producer.Flush(15 * 1000)
+		ws.wsKafka.Producer.Flush(15_000)
 		_ = ws.wsKafka.Consumer.Close()
 		ws.wsKafka.Producer.Close()
 		log.Debug("Kafka producer Flush done. Producer and consumer closed")

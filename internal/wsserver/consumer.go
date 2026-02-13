@@ -12,7 +12,7 @@ func NewConsumer(address, hostname string) (*kafka.Consumer, error) {
 	conf := &kafka.ConfigMap{
 		"bootstrap.servers": address,
 		"group.id":          "consumer_group_" + hostname,
-		"auto.offset.reset": "earliest",
+		"auto.offset.reset": "latest",
 	}
 	c, err := kafka.NewConsumer(conf)
 	if err != nil {
@@ -29,6 +29,11 @@ func NewConsumer(address, hostname string) (*kafka.Consumer, error) {
 
 func (ws *wsSrv) ReceiveKafka() {
 	log.Debug("kafka consumer started")
+	defer func() {
+		log.Debug("kafka consumer stopping")
+		_ = ws.wsKafka.Consumer.Close()
+	}()
+
 	var ke kafka.Error
 	for {
 		select {
@@ -50,7 +55,8 @@ func (ws *wsSrv) ReceiveKafka() {
 				case <-ws.wsKafka.ctx.Done():
 					return
 				default:
-					log.Error("Kafka consumer error sending message to broadcast channel")
+					kafkaDropped.Inc()
+					log.Warn("Dropping kafka message: WS broadcast overloaded")
 				}
 			} else if errors.As(err, &ke) {
 				if !ke.IsTimeout() {
