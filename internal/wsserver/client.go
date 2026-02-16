@@ -1,6 +1,8 @@
 package wsserver
 
 import (
+	"WebSocketChat/internal/metrics"
+	"WebSocketChat/internal/types"
 	"context"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -14,7 +16,7 @@ type sClient struct {
 	once   sync.Once
 	ctx    context.Context
 	cancel context.CancelFunc
-	send   chan *WsMessage
+	send   chan *types.WsMessage
 }
 
 func newClient(conn *websocket.Conn) *sClient {
@@ -23,7 +25,7 @@ func newClient(conn *websocket.Conn) *sClient {
 		conn:   conn,
 		ctx:    ctx,
 		cancel: cancel,
-		send:   make(chan *WsMessage, 256),
+		send:   make(chan *types.WsMessage, 256),
 	}
 }
 
@@ -46,16 +48,16 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 	}()
 
 	c.conn.SetReadLimit(512 * 1024)
-	err := c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	err := c.conn.SetReadDeadline(time.Now().Add(types.PongWait))
 	if err != nil {
 		log.Error(err)
 	}
 	c.conn.SetPongHandler(func(string) error {
-		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return c.conn.SetReadDeadline(time.Now().Add(types.PongWait))
 	})
 
 	for {
-		var msg WsMessage
+		var msg types.WsMessage
 		if err := c.conn.ReadJSON(&msg); err != nil {
 			log.Debugf("Client disconnetced: %v", err)
 			return
@@ -72,12 +74,12 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 			return
 		}
 
-		if ws.wsKafka.kafkaChan != nil {
+		if ws.wsKafka.KChan != nil {
 			select {
-			case ws.wsKafka.kafkaChan <- &msg:
-			case <-ws.wsKafka.ctx.Done():
+			case ws.wsKafka.KChan <- &msg:
+			case <-ws.wsKafka.KCtx.Done():
 			default:
-				kafkaDropped.Inc()
+				metrics.KafkaDropped.Inc()
 				log.Warn("Kafka backlog overflow, dropping message")
 			}
 		}
@@ -85,13 +87,13 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 }
 
 func (ws *wsSrv) writeToClient(c *sClient) {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(types.PingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = c.conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			time.Now().Add(writeWait),
+			time.Now().Add(types.WriteWait),
 		)
 		// не блокироваться
 		select {
@@ -106,13 +108,13 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 			if !ok {
 				return
 			}
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
 			if err := c.conn.WriteJSON(msg); err != nil {
 				log.Errorf("Error with writing message: %v", err)
 				return
 			}
 		case <-ticker.C:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Debugf("Ping stopped: %v", err)
 				return

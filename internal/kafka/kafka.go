@@ -1,12 +1,25 @@
-package wsserver
+package kafka
 
 import (
+	"WebSocketChat/internal/metrics"
+	"WebSocketChat/internal/types"
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	log "github.com/sirupsen/logrus"
 	"time"
 )
+
+type Kafka struct {
+	Producer  *kafka.Producer
+	Consumer  *kafka.Consumer
+	KChan     chan *types.WsMessage
+	KCtx      context.Context
+	KCancel   context.CancelFunc
+	KHost     string
+	Broadcast chan *types.WsMessage
+}
 
 func NewProducer(address string) (*kafka.Producer, error) {
 	conf := &kafka.ConfigMap{
@@ -25,13 +38,13 @@ func NewProducer(address string) (*kafka.Producer, error) {
 	return p, nil
 }
 
-func (ws *wsSrv) sendToKafka(message *WsMessage) {
+func (k *Kafka) SendToKafka(message *types.WsMessage) {
 	if message.Host != "" {
 		return
 	}
 
 	kafkaMsg := *message
-	kafkaMsg.Host = ws.host
+	kafkaMsg.Host = k.KHost
 
 	value, err := json.Marshal(kafkaMsg)
 	if err != nil {
@@ -40,7 +53,7 @@ func (ws *wsSrv) sendToKafka(message *WsMessage) {
 	}
 
 	topic := "web-topic"
-	err = ws.wsKafka.Producer.Produce(&kafka.Message{
+	err = k.Producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
 			Partition: kafka.PartitionAny},
@@ -48,13 +61,13 @@ func (ws *wsSrv) sendToKafka(message *WsMessage) {
 	}, nil)
 
 	if err != nil {
-		kafkaDropped.Inc()
+		metrics.KafkaDropped.Inc()
 		log.Errorf("Kafka produce error: %v", err)
 	}
 }
 
-func (ws *wsSrv) getProducerEventsKafka() {
-	for e := range ws.wsKafka.Producer.Events() {
+func (k *Kafka) GetProducerEventsKafka() {
+	for e := range k.Producer.Events() {
 		switch ev := e.(type) {
 		case *kafka.Message:
 			if ev.TopicPartition.Error != nil {
@@ -85,35 +98,36 @@ func NewConsumer(address, hostname string) (*kafka.Consumer, error) {
 	return c, nil
 }
 
-func (ws *wsSrv) receiveKafka() {
+func (k *Kafka) ReceiveKafka() {
 	log.Debug("kafka consumer started")
 	defer func() {
 		log.Debug("kafka consumer stopping")
-		_ = ws.wsKafka.Consumer.Close()
+		_ = k.Consumer.Close()
 	}()
 
 	var ke kafka.Error
 	for {
 		select {
-		case <-ws.wsKafka.ctx.Done():
+		case <-k.KCtx.Done():
+			return
 		default:
-			message, err := ws.wsKafka.Consumer.ReadMessage(time.Second)
+			message, err := k.Consumer.ReadMessage(time.Second)
 			if err == nil {
-				msg := new(WsMessage)
+				msg := new(types.WsMessage)
 				err = json.Unmarshal(message.Value, msg)
 				if err != nil {
 					log.Errorf("Error unmarshalling kafka message: %v", err)
 					continue
 				}
-				if msg.Host == ws.host {
+				if msg.Host == k.KHost {
 					continue
 				}
 				select {
-				case ws.broadcast <- msg:
-				case <-ws.wsKafka.ctx.Done():
+				case k.Broadcast <- msg:
+				case <-k.KCtx.Done():
 					return
 				default:
-					kafkaDropped.Inc()
+					metrics.KafkaDropped.Inc()
 					log.Warn("Dropping kafka message: WS broadcast overloaded")
 				}
 			} else if errors.As(err, &ke) {
@@ -127,15 +141,15 @@ func (ws *wsSrv) receiveKafka() {
 	}
 }
 
-func (ws *wsSrv) kafkaWorker() {
+func (k *Kafka) KafkaWorker() {
 	for {
 		select {
-		case msg, ok := <-ws.wsKafka.kafkaChan:
+		case msg, ok := <-k.KChan:
 			if !ok {
 				return
 			}
-			ws.sendToKafka(msg)
-		case <-ws.wsKafka.ctx.Done():
+			k.SendToKafka(msg)
+		case <-k.KCtx.Done():
 			return
 		}
 	}

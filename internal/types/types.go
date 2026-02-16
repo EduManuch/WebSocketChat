@@ -1,4 +1,4 @@
-package wsserver
+package types
 
 import "time"
 
@@ -10,7 +10,7 @@ type WsMessage struct {
 }
 
 const (
-	pongWait   = 10 * time.Second
-	pingPeriod = 8 * time.Second
-	writeWait  = 5 * time.Second
+	PongWait   = 10 * time.Second
+	PingPeriod = 8 * time.Second
+	WriteWait  = 5 * time.Second
 )

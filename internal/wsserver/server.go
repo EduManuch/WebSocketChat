@@ -1,10 +1,12 @@
 package wsserver
 
 import (
+	wskafka "WebSocketChat/internal/kafka"
+	"WebSocketChat/internal/metrics"
+	"WebSocketChat/internal/types"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -35,51 +37,53 @@ type wsSrv struct {
 	mux         *http.ServeMux
 	srv         *http.Server
 	wsUpg       *websocket.Upgrader
-	broadcast   chan *WsMessage
+	broadcast   chan *types.WsMessage
 	clients     clients
-	connChan    chan *sClient //*websocket.Conn
-	delConnChan chan *sClient //*websocket.Conn
-	wsKafka     Kafka
-	host        string
+	clientsWg   sync.WaitGroup
+	connChan    chan *sClient
+	delConnChan chan *sClient
+	wsKafka     wskafka.Kafka
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
-type Kafka struct {
-	Producer  *kafka.Producer
-	Consumer  *kafka.Consumer
-	kafkaChan chan *WsMessage
-	ctx       context.Context
-	cancel    context.CancelFunc
-}
-
-func NewWsServer(e *EnvConfig) WSServer {
+func NewWsServer(e *EnvConfig) (WSServer, error) {
 	m := http.NewServeMux()
-	initMetrics()
+	metrics.InitMetrics()
 
 	if e.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	hostname, _ := os.Hostname()
-	var k Kafka
+	broadcastChan := make(chan *types.WsMessage, 1024)
+	var k wskafka.Kafka
 	if e.UseKafka {
-		ctx, cancel := context.WithCancel(context.Background())
-		producer, err := NewProducer("kafka:9092")
+		hostname, _ := os.Hostname()
+		producer, err := wskafka.NewProducer("kafka:9092")
 		if err != nil {
 			log.Errorf("New producer error: %v", err)
+			return nil, err
 		}
-		consumer, err := NewConsumer("kafka:9092", hostname)
+		consumer, err := wskafka.NewConsumer("kafka:9092", hostname)
 		if err != nil {
 			log.Errorf("New consumer error: %v", err)
+			return nil, err
 		}
-		k = Kafka{
+
+		KCtx, KCancel := context.WithCancel(context.Background())
+		k = wskafka.Kafka{
 			Producer:  producer,
 			Consumer:  consumer,
-			kafkaChan: make(chan *WsMessage, 1024),
-			ctx:       ctx,
-			cancel:    cancel,
+			KChan:     make(chan *types.WsMessage, 1024),
+			KCtx:      KCtx,
+			KCancel:   KCancel,
+			KHost:     hostname,
+			Broadcast: broadcastChan,
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	addr := e.Addr + e.Port
 	return &wsSrv{
 		mux: m,
@@ -98,7 +102,7 @@ func NewWsServer(e *EnvConfig) WSServer {
 				return ok
 			},
 		},
-		broadcast: make(chan *WsMessage, 1024),
+		broadcast: broadcastChan,
 		clients: clients{
 			mutex:     &sync.RWMutex{},
 			wsClients: make(map[*sClient]struct{}, 1024),
@@ -106,8 +110,10 @@ func NewWsServer(e *EnvConfig) WSServer {
 		connChan:    make(chan *sClient, 1024),
 		delConnChan: make(chan *sClient, 1024),
 		wsKafka:     k,
-		host:        hostname,
-	}
+		ctx:         ctx,
+		cancel:      cancel,
+		wg:          sync.WaitGroup{},
+	}, nil
 }
 
 func (ws *wsSrv) Start(e *EnvConfig) error {
@@ -115,13 +121,14 @@ func (ws *wsSrv) Start(e *EnvConfig) error {
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	ws.mux.Handle("/metrics", promhttp.Handler())
+	ws.wg.Add(3)
 	go ws.addClientConn()
 	go ws.delClientConn()
 	go ws.readFromBroadCastWriteToClients()
 	if e.UseKafka {
-		go ws.getProducerEventsKafka()
-		go ws.receiveKafka()
-		go ws.kafkaWorker()
+		go ws.wsKafka.GetProducerEventsKafka()
+		go ws.wsKafka.ReceiveKafka()
+		go ws.wsKafka.KafkaWorker()
 	}
 
 	if e.UseTls {
@@ -150,20 +157,18 @@ func (ws *wsSrv) Stop(useKafka bool) error {
 	err := ws.srv.Shutdown(context.Background())
 
 	if useKafka {
-		ws.wsKafka.cancel()
+		ws.wsKafka.KCancel()
 	}
 
 	ws.clients.mutex.RLock()
 	for conn := range ws.clients.wsClients {
-		select {
-		case ws.delConnChan <- conn:
-		default:
-		}
+		ws.delConnChan <- conn
 	}
 	ws.clients.mutex.RUnlock()
+	ws.clientsWg.Wait()
 	log.Debug("Clients list after close", ws.clients.wsClients)
-
-	close(ws.broadcast)
+	ws.cancel()
+	ws.wg.Wait()
 
 	if useKafka {
 		ws.wsKafka.Producer.Flush(15_000)

@@ -50,7 +50,10 @@ func main() {
 		cancel()
 	}()
 
-	wsSrv := wsserver.NewWsServer(&envs)
+	wsSrv, err := wsserver.NewWsServer(&envs)
+	if err != nil {
+		return
+	}
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
