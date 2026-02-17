@@ -2,16 +2,17 @@ package wsserver
 
 import (
 	"WebSocketChat/internal/metrics"
+	"WebSocketChat/internal/types"
 	log "github.com/sirupsen/logrus"
 	"sync"
 )
 
 type clients struct {
 	mutex     *sync.RWMutex
-	wsClients map[*sClient]struct{} //map[*websocket.Conn]struct{}
+	wsClients map[*types.SClient]struct{} //map[*websocket.Conn]struct{}
 }
 
-func (ws *wsSrv) addClientConn() {
+func (ws *wsSrv) AddClientConn() {
 	defer ws.wg.Done()
 
 	for {
@@ -34,7 +35,7 @@ func (ws *wsSrv) addClientConn() {
 	}
 }
 
-func (ws *wsSrv) delClientConn() {
+func (ws *wsSrv) DelClientConn() {
 	defer ws.wg.Done()
 
 	for {
@@ -58,7 +59,7 @@ func (ws *wsSrv) delClientConn() {
 	}
 }
 
-func (ws *wsSrv) readFromBroadCastWriteToClients() {
+func (ws *wsSrv) ReadFromBroadCastWriteToClients() {
 	defer ws.wg.Done()
 
 	for {
@@ -70,7 +71,7 @@ func (ws *wsSrv) readFromBroadCastWriteToClients() {
 				return
 			}
 			ws.clients.mutex.RLock()
-			sClients := make([]*sClient, 0, len(ws.clients.wsClients))
+			sClients := make([]*types.SClient, 0, len(ws.clients.wsClients))
 			for client := range ws.clients.wsClients {
 				sClients = append(sClients, client)
 			}
@@ -78,7 +79,7 @@ func (ws *wsSrv) readFromBroadCastWriteToClients() {
 
 			for _, c := range sClients {
 				select {
-				case c.send <- msg:
+				case c.Send <- msg:
 				default:
 					select {
 					case ws.delConnChan <- c:

@@ -7,36 +7,20 @@ import (
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"net"
-	"sync"
 	"time"
 )
 
-type sClient struct {
-	conn   *websocket.Conn
-	once   sync.Once
-	ctx    context.Context
-	cancel context.CancelFunc
-	send   chan *types.WsMessage
-}
-
-func newClient(conn *websocket.Conn) *sClient {
+func (ws *wsSrv) NewClient(conn *websocket.Conn) *types.SClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &sClient{
-		conn:   conn,
-		ctx:    ctx,
-		cancel: cancel,
-		send:   make(chan *types.WsMessage, 256),
+	return &types.SClient{
+		Conn:   conn,
+		Ctx:    ctx,
+		Cancel: cancel,
+		Send:   make(chan *types.WsMessage, 256),
 	}
 }
 
-func (c *sClient) Close() {
-	c.once.Do(func() {
-		c.cancel()
-		_ = c.conn.Close()
-	})
-}
-
-func (ws *wsSrv) readFromClient(c *sClient) {
+func (ws *wsSrv) ReadFromClient(c *types.SClient) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("error in read worker : %v", r)
@@ -47,22 +31,22 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 		}
 	}()
 
-	c.conn.SetReadLimit(512 * 1024)
-	err := c.conn.SetReadDeadline(time.Now().Add(types.PongWait))
+	c.Conn.SetReadLimit(512 * 1024)
+	err := c.Conn.SetReadDeadline(time.Now().Add(types.PongWait))
 	if err != nil {
 		log.Error(err)
 	}
-	c.conn.SetPongHandler(func(string) error {
-		return c.conn.SetReadDeadline(time.Now().Add(types.PongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		return c.Conn.SetReadDeadline(time.Now().Add(types.PongWait))
 	})
 
 	for {
 		var msg types.WsMessage
-		if err := c.conn.ReadJSON(&msg); err != nil {
+		if err := c.Conn.ReadJSON(&msg); err != nil {
 			log.Debugf("Client disconnetced: %v", err)
 			return
 		}
-		host, _, err := net.SplitHostPort(c.conn.RemoteAddr().String())
+		host, _, err := net.SplitHostPort(c.Conn.RemoteAddr().String())
 		if err == nil {
 			msg.IPAddress = host
 		}
@@ -70,7 +54,7 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 
 		select {
 		case ws.broadcast <- &msg:
-		case <-c.ctx.Done():
+		case <-c.Ctx.Done():
 			return
 		}
 
@@ -86,11 +70,11 @@ func (ws *wsSrv) readFromClient(c *sClient) {
 	}
 }
 
-func (ws *wsSrv) writeToClient(c *sClient) {
+func (ws *wsSrv) WriteToClient(c *types.SClient) {
 	ticker := time.NewTicker(types.PingPeriod)
 	defer func() {
 		ticker.Stop()
-		_ = c.conn.WriteControl(
+		_ = c.Conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			time.Now().Add(types.WriteWait),
@@ -104,24 +88,23 @@ func (ws *wsSrv) writeToClient(c *sClient) {
 
 	for {
 		select {
-		case msg, ok := <-c.send:
+		case msg, ok := <-c.Send:
 			if !ok {
 				return
 			}
-			_ = c.conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
-			if err := c.conn.WriteJSON(msg); err != nil {
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
+			if err := c.Conn.WriteJSON(msg); err != nil {
 				log.Errorf("Error with writing message: %v", err)
 				return
 			}
 		case <-ticker.C:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(types.WriteWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Debugf("Ping stopped: %v", err)
 				return
 			}
-		case <-c.ctx.Done():
+		case <-c.Ctx.Done():
 			return
 		}
 	}
-
 }

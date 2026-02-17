@@ -1,62 +1,60 @@
 package wsserver
 
 import (
+	"WebSocketChat/internal/handlers"
 	wskafka "WebSocketChat/internal/kafka"
 	"WebSocketChat/internal/metrics"
 	"WebSocketChat/internal/types"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/gorilla/websocket"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
-)
 
-type WSServer interface {
-	Start(e *EnvConfig) error
-	Stop(useKafka bool) error
-}
-type EnvConfig struct {
-	Addr        string
-	Port        string
-	UseTls      bool
-	CertFile    string
-	KeyFile     string
-	TemplateDir string
-	StaticDir   string
-	UseKafka    bool
-	Origins     map[string]struct{}
-	Debug       bool
-}
+	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
+)
 
 type wsSrv struct {
 	mux         *http.ServeMux
 	srv         *http.Server
-	wsUpg       *websocket.Upgrader
+	wsHandler   handlers.WsHandler
 	broadcast   chan *types.WsMessage
 	clients     clients
 	clientsWg   sync.WaitGroup
-	connChan    chan *sClient
-	delConnChan chan *sClient
+	connChan    chan *types.SClient
+	delConnChan chan *types.SClient
 	wsKafka     wskafka.Kafka
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 }
 
-func NewWsServer(e *EnvConfig) (WSServer, error) {
+func NewWsServer(e *types.EnvConfig) (types.WsServer, error) {
 	m := http.NewServeMux()
 	metrics.InitMetrics()
-
+	broadcastChan := make(chan *types.WsMessage, 1024)
+	addr := e.Addr + e.Port
 	if e.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
+	wsHandler := handlers.WsHandler{
+		Upgrader: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				addrUrl, err := url.ParseRequestURI(origin)
+				if err != nil {
+					return false
+				}
+				_, ok := e.Origins[addrUrl.Host]
+				return ok
+			},
+		},
+	}
 
-	broadcastChan := make(chan *types.WsMessage, 1024)
 	var k wskafka.Kafka
 	if e.UseKafka {
 		hostname, _ := os.Hostname()
@@ -84,31 +82,20 @@ func NewWsServer(e *EnvConfig) (WSServer, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	addr := e.Addr + e.Port
 	return &wsSrv{
 		mux: m,
 		srv: &http.Server{
 			Addr:    addr,
 			Handler: m,
 		},
-		wsUpg: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				addrUrl, err := url.ParseRequestURI(origin)
-				if err != nil {
-					return false
-				}
-				_, ok := e.Origins[addrUrl.Host]
-				return ok
-			},
-		},
+		wsHandler: wsHandler,
 		broadcast: broadcastChan,
 		clients: clients{
 			mutex:     &sync.RWMutex{},
-			wsClients: make(map[*sClient]struct{}, 1024),
+			wsClients: make(map[*types.SClient]struct{}, 1024),
 		},
-		connChan:    make(chan *sClient, 1024),
-		delConnChan: make(chan *sClient, 1024),
+		connChan:    make(chan *types.SClient, 1024),
+		delConnChan: make(chan *types.SClient, 1024),
 		wsKafka:     k,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -116,15 +103,22 @@ func NewWsServer(e *EnvConfig) (WSServer, error) {
 	}, nil
 }
 
-func (ws *wsSrv) Start(e *EnvConfig) error {
+func (ws *wsSrv) GetConnChan() chan *types.SClient {
+	return ws.connChan
+}
+
+func (ws *wsSrv) Start(e *types.EnvConfig) error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
-	ws.mux.HandleFunc("/ws", ws.wsHandler)
+	// ws.mux.HandleFunc("/ws", ws.wsHandler.CreateWsConnection)
+	ws.mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ws.wsHandler.CreateWsConnection(w, r, ws)
+	})
 	ws.mux.Handle("/metrics", promhttp.Handler())
 	ws.wg.Add(3)
-	go ws.addClientConn()
-	go ws.delClientConn()
-	go ws.readFromBroadCastWriteToClients()
+	go ws.AddClientConn()
+	go ws.DelClientConn()
+	go ws.ReadFromBroadCastWriteToClients()
 	if e.UseKafka {
 		go ws.wsKafka.GetProducerEventsKafka()
 		go ws.wsKafka.ReceiveKafka()

@@ -2,3 +2,5 @@
 *.crt
 *.pem
 grafana_data/
+grafana_data/*
+grafana_data/grafana.db

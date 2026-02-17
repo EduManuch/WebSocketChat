@@ -1,18 +1,20 @@
 package main
 
 import (
+	"WebSocketChat/internal/types"
 	"WebSocketChat/internal/wsserver"
 	"context"
-	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/joho/godotenv"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
-var envs = wsserver.EnvConfig{}
+var envs = types.EnvConfig{}
 
 func init() {
 	err := godotenv.Load()
