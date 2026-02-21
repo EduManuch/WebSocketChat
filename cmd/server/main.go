@@ -6,8 +6,10 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
@@ -35,6 +37,12 @@ func init() {
 	strOrigins := os.Getenv("BACKEND_ORIGINS")
 	slOrigins := strings.Split(strOrigins, ",")
 	envs.Origins = make(map[string]struct{})
+	envs.JwtSecret = os.Getenv("JWT_SECRET")
+	TokenTTL, err := strconv.Atoi(os.Getenv("TOKEN_TTL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	envs.TokenTTL = time.Duration(TokenTTL) * time.Second
 	for _, s := range slOrigins {
 		envs.Origins[s] = struct{}{}
 	}

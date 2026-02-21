@@ -2,9 +2,11 @@ package types
 
 import (
 	"context"
-	"github.com/gorilla/websocket"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 )
 
 type WsServer interface {
@@ -29,6 +31,8 @@ type EnvConfig struct {
 	StaticDir   string
 	UseKafka    bool
 	Origins     map[string]struct{}
+	JwtSecret   string
+	TokenTTL    time.Duration
 	Debug       bool
 }
 
@@ -52,6 +56,33 @@ type WsMessage struct {
 	Message   string `json:"message"`
 	Time      string `json:"time"`
 	Host      string `json:"host"`
+}
+
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Token string            `json:"token"`
+	User  UserLoginResponse `json:"user"`
+}
+
+type UserLoginResponse struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+}
+
+type Claims struct {
+	UserID   string
+	Username string
+	jwt.RegisteredClaims
 }
 
 const (

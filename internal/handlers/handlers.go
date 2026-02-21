@@ -1,14 +1,18 @@
 package handlers
 
 import (
+	"WebSocketChat/internal/auth"
 	"WebSocketChat/internal/types"
+	"encoding/json"
+	"net/http"
+
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
-	"net/http"
 )
 
 type WsHandler struct {
-	Upgrader *websocket.Upgrader
+	Upgrader    *websocket.Upgrader
+	AuthService *auth.Service
 }
 
 func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, ws types.WsServer) {
@@ -25,4 +29,77 @@ func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, w
 	connChan <- client
 	go ws.ReadFromClient(client)
 	go ws.WriteToClient(client)
+}
+
+func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		http.ServeFile(w, r, e.TemplateDir+"/register.html")
+		return
+	}
+
+	var req types.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := h.AuthService.Register(req.Username, req.Email, req.Password)
+	if err != nil {
+		http.Error(w, "Username and password required", http.StatusBadRequest)
+		return
+
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "User created successfully",
+		"user_id": userID,
+	})
+}
+
+func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		http.ServeFile(w, r, e.TemplateDir+"/login.html")
+		return
+	}
+
+	var req types.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := h.AuthService.Login(req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Login Error", http.StatusUnauthorized)
+		return
+	}
+	jwtToken, err := h.AuthService.GenerateToken(userID, req.Username)
+	if err != nil {
+		http.Error(w, "JWT error", http.StatusInternalServerError)
+		return
+	}
+
+	loginResponse := types.LoginResponse{
+		Token: jwtToken,
+		User: types.UserLoginResponse{
+			ID:       userID,
+			Username: req.Username,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(loginResponse)
 }

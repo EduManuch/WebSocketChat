@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"WebSocketChat/internal/auth"
 	"WebSocketChat/internal/handlers"
 	wskafka "WebSocketChat/internal/kafka"
 	"WebSocketChat/internal/metrics"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -21,6 +23,7 @@ import (
 type wsSrv struct {
 	mux         *http.ServeMux
 	srv         *http.Server
+	authService auth.Service
 	wsHandler   handlers.WsHandler
 	broadcast   chan *types.WsMessage
 	clients     clients
@@ -53,6 +56,7 @@ func NewWsServer(e *types.EnvConfig) (types.WsServer, error) {
 				return ok
 			},
 		},
+		AuthService: auth.NewService(e.JwtSecret, time.Second*e.TokenTTL, e.JwtSecret),
 	}
 
 	var k wskafka.Kafka
@@ -108,13 +112,18 @@ func (ws *wsSrv) GetConnChan() chan *types.SClient {
 }
 
 func (ws *wsSrv) Start(e *types.EnvConfig) error {
-	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
-	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
-	// ws.mux.HandleFunc("/ws", ws.wsHandler.CreateWsConnection)
+	ws.mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		ws.wsHandler.LoginUser(w, r, e)
+	})
+	ws.mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
+		ws.wsHandler.RegisterUser(w, r, e)
+	})
 	ws.mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.CreateWsConnection(w, r, ws)
 	})
+	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.Handle("/metrics", promhttp.Handler())
+	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))
 	ws.wg.Add(3)
 	go ws.AddClientConn()
 	go ws.DelClientConn()

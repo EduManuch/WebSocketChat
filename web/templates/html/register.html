@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - WebSocket Chat</title>
+    <!-- Bootstrap CSS -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Auth Styles -->
+    <link href="/static/css/auth.css" rel="stylesheet">
+</head>
+<body class="auth-page">
+<div class="container">
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h2>Create Account</h2>
+                <p>Sign up to join WebSocket Chat</p>
+            </div>
+            
+            <form id="registerForm" class="auth-form" novalidate>
+                <div class="mb-3">
+                    <label for="registerUsername" class="form-label">Username</label>
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="registerUsername" 
+                        name="username"
+                        placeholder="Choose a username"
+                        required
+                        minlength="3"
+                        maxlength="20"
+                        pattern="[a-zA-Z0-9_]+"
+                        autocomplete="username"
+                    >
+                    <div class="invalid-feedback">
+                        Username must be 3-20 characters, letters, numbers, and underscores only
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="registerEmail" class="form-label">Email (optional)</label>
+                    <input 
+                        type="email" 
+                        class="form-control" 
+                        id="registerEmail" 
+                        name="email"
+                        placeholder="your@email.com"
+                        autocomplete="email"
+                    >
+                    <div class="invalid-feedback">
+                        Please enter a valid email address
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="registerPassword" class="form-label">Password</label>
+                    <input 
+                        type="password" 
+                        class="form-control" 
+                        id="registerPassword" 
+                        name="password"
+                        placeholder="Create a password"
+                        required
+                        minlength="6"
+                        autocomplete="new-password"
+                    >
+                    <div class="invalid-feedback">
+                        Password must be at least 6 characters
+                    </div>
+                    <div class="form-text">
+                        Minimum 6 characters
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="registerPasswordConfirm" class="form-label">Confirm Password</label>
+                    <input 
+                        type="password" 
+                        class="form-control" 
+                        id="registerPasswordConfirm" 
+                        name="password_confirm"
+                        placeholder="Confirm your password"
+                        required
+                        autocomplete="new-password"
+                    >
+                    <div class="invalid-feedback">
+                        Passwords do not match
+                    </div>
+                </div>
+                
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="agreeTerms" required>
+                    <label class="form-check-label" for="agreeTerms">
+                        I agree to the <a href="#" class="text-primary">Terms of Service</a>
+                    </label>
+                    <div class="invalid-feedback">
+                        You must agree to the terms
+                    </div>
+                </div>
+                
+                <div id="registerError" class="alert alert-danger d-none" role="alert"></div>
+                <div id="registerSuccess" class="alert alert-success d-none" role="alert"></div>
+                
+                <button type="submit" class="btn btn-primary w-100 mb-3">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    Create Account
+                </button>
+            </form>
+            
+            <div class="auth-footer">
+                <p>Already have an account? <a href="/auth/login" data-router>Sign In</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Auth JS -->
+<script src="/static/js/auth.js?v=2"></script>
+<script>
+    // Initialize register form
+    document.addEventListener('DOMContentLoaded', function() {
+        Auth.initRegister();
+    });
+</script>
+<!-- Bootstrap JS -->
+<script src="/static/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
