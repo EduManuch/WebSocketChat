@@ -78,7 +78,7 @@ func (s *Service) Register(username, email, password string) (string, error) {
 
 func (s *Service) Login(username, password string) (string, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 
 	userID, exists := s.storage.usernames[username]
 	if !exists {

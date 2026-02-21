@@ -85,6 +85,10 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 const (
 	PongWait   = 10 * time.Second
 	PingPeriod = 8 * time.Second
