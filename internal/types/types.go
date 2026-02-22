@@ -75,7 +75,6 @@ type LoginResponse struct {
 }
 
 type UserLoginResponse struct {
-	ID       string `json:"id"`
 	Username string `json:"username"`
 }
 

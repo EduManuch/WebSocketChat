@@ -34,8 +34,8 @@ func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, w
 func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
 		return
 	}
 
@@ -47,15 +47,15 @@ func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *type
 	w.Header().Set("Content-Type", "application/json")
 	var req types.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		return
 	}
 
-	err := h.AuthService.Register(req.Username, req.Email, req.Password)
+	err := h.AuthService.Register(req.Email, req.Password, req.Username)
 	if err != nil {
+		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
-		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
@@ -66,8 +66,8 @@ func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *type
 func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
 		return
 	}
 
@@ -79,28 +79,27 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 	w.Header().Set("Content-Type", "application/json")
 	var req types.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		return
 	}
 
-	userID, err := h.AuthService.Login(req.Username, req.Password)
+	err := h.AuthService.Login(req.Username, req.Password)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		return
 	}
-	jwtToken, err := h.AuthService.GenerateToken(userID, req.Username)
+	jwtToken, err := h.AuthService.GenerateToken(req.Username)
 	if err != nil {
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		return
 	}
 
 	loginResponse := types.LoginResponse{
 		Token: jwtToken,
 		User: types.UserLoginResponse{
-			ID:       userID,
 			Username: req.Username,
 		},
 	}

@@ -20,20 +20,19 @@ type Service struct {
 }
 
 type Storage struct {
-	users     map[string]User   // userID -> User
-	usernames map[string]string // username -> userID
+	users  map[string]User   // userID -> User
+	emails map[string]string // email -> userID
 }
 
 type User struct {
-	ID       string
 	name     string
-	email    string
 	password string
 }
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidPassword    = errors.New("invalid password")
+	ErrEmailExists        = errors.New("email exists")
 )
 
 func NewService(jwtSecret string, tokenTTL time.Duration, JwtSecret string) *Service {
@@ -44,66 +43,62 @@ func NewService(jwtSecret string, tokenTTL time.Duration, JwtSecret string) *Ser
 
 	return &Service{
 		storage: &Storage{
-			users:     make(map[string]User),
-			usernames: make(map[string]string),
+			users:  make(map[string]User),
+			emails: make(map[string]string),
 		},
 		jwtSecret: []byte(jwtSecret),
 		tokenTTL:  tokenTTL,
 	}
 }
 
-func (s *Service) Register(username, email, password string) error {
+func (s *Service) Register(email, password, username string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.storage.usernames[username]; exists {
-		return errors.New("username exists")
+	if _, exists := s.storage.emails[email]; exists {
+		return ErrEmailExists
 	}
 
 	userID := generateUserID()
-
 	user := User{
-		ID:       userID,
 		name:     username,
-		email:    email,
 		password: password,
 	}
 
 	s.storage.users[userID] = user
-	s.storage.usernames[username] = userID
-	log.Debugf("user registered: %v (ID: %v)", username, userID)
+	s.storage.emails[email] = userID
+	log.Debugf("email registered: %v (ID: %v)", email, userID)
 
 	return nil
 }
 
-func (s *Service) Login(username, password string) (string, error) {
+func (s *Service) Login(email, password string) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	userID, exists := s.storage.usernames[username]
+	userID, exists := s.storage.emails[email]
 	if !exists {
-		return "", ErrInvalidCredentials
+		return ErrInvalidCredentials
 	}
 	if s.storage.users[userID].password != password {
-		return "", ErrInvalidPassword
+		return ErrInvalidPassword
 	}
 
-	return userID, nil
+	return nil
 }
 
-func (s *Service) GenerateToken(userID, username string) (string, error) {
+func (s *Service) GenerateToken(username string) (string, error) {
 	claims := types.Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.tokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Subject:   userID,
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(s.jwtSecret)
-	log.Println(tokenString)
+
 	return tokenString, err
 }
 
