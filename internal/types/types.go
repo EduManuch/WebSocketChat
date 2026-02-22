@@ -70,12 +70,7 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string            `json:"token"`
-	User  UserLoginResponse `json:"user"`
-}
-
-type UserLoginResponse struct {
-	Username string `json:"username"`
+	Username string `json:"user"`
 }
 
 type RegisterResponse struct {

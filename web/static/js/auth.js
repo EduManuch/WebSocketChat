@@ -6,7 +6,7 @@ const Auth = (function() {
     'use strict';
 
     // Storage keys
-    const TOKEN_KEY = 'auth_token';
+    // TOKEN removed - token is now stored in HttpOnly cookie
     const USER_KEY = 'auth_user';
 
     // API endpoints
@@ -98,8 +98,9 @@ const Auth = (function() {
      * Check if user is authenticated
      */
     function isAuthenticated() {
-        const token = localStorage.getItem(TOKEN_KEY);
-        return !!token;
+        // Check if user data exists in localStorage (token is in HttpOnly cookie)
+        const user = localStorage.getItem(USER_KEY);
+        return !!user;
     }
 
     /**
@@ -119,25 +120,22 @@ const Auth = (function() {
 
     /**
      * Get auth token
+     * Note: Token is stored in HttpOnly cookie and cannot be accessed via JavaScript
      */
     function getToken() {
-        return localStorage.getItem(TOKEN_KEY);
+        return null; // Token is in HttpOnly cookie, not accessible from JS
     }
 
     /**
      * Check auth status from server
      */
     async function checkAuthStatus() {
-        const token = getToken();
-        if (!token) {
-            return null;
-        }
-
+        // Cookie is sent automatically by the browser
         try {
             const response = await fetch(API_ENDPOINTS.me, {
                 method: 'GET',
+                credentials: 'same-origin',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -145,6 +143,9 @@ const Auth = (function() {
             if (response.ok) {
                 const data = await response.json();
                 currentUser = data.user;
+                if (currentUser) {
+                    localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+                }
                 return currentUser;
             } else {
                 // Token invalid, clear auth
@@ -153,7 +154,7 @@ const Auth = (function() {
         } catch (error) {
             console.error('Auth check failed:', error);
         }
-        
+
         return null;
     }
 
@@ -164,6 +165,7 @@ const Auth = (function() {
         try {
             const response = await fetch(API_ENDPOINTS.login, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json'
                 },
@@ -176,8 +178,7 @@ const Auth = (function() {
                 throw new Error(data.message || 'Login failed');
             }
 
-            // Store token and user
-            localStorage.setItem(TOKEN_KEY, data.token);
+            // Token is now in HttpOnly cookie, just store user info
             if (data.user) {
                 localStorage.setItem(USER_KEY, JSON.stringify(data.user));
                 currentUser = data.user;
@@ -218,15 +219,11 @@ const Auth = (function() {
      * Logout user
      */
     async function logout() {
-        const token = getToken();
-
+        // Cookie is sent automatically by the browser
         try {
             await fetch(API_ENDPOINTS.logout, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+                credentials: 'same-origin'
             });
         } catch (error) {
             console.error('Logout request failed:', error);
@@ -240,7 +237,6 @@ const Auth = (function() {
      * Clear authentication data
      */
     function clearAuth() {
-        localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
         currentUser = null;
     }

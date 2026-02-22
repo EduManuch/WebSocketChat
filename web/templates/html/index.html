@@ -158,9 +158,8 @@
     // Initialize auth state and UI
     function initAuthUI() {
         const user = Auth.getCurrentUser();
-        const token = Auth.getToken();
 
-        if (token && user) {
+        if (user) {
             // User is authenticated
             showAuthenticatedState(user);
             initChat();
@@ -207,16 +206,10 @@
     // Initialize WebSocket chat
     function initChat() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const token = Auth.getToken();
-        
-        // Connect to WebSocket with token
+
+        // Connect to WebSocket - cookie is sent automatically by the browser
         const wsUrl = protocol + '//' + window.location.host + '/ws';
-        if (token) {
-            // Add token as query parameter for authentication
-            socket = new WebSocket(wsUrl + '?token=' + encodeURIComponent(token));
-        } else {
-            socket = new WebSocket(wsUrl);
-        }
+        socket = new WebSocket(wsUrl);
 
         // Обработчик для получения сообщений от сервера
         socket.addEventListener('message', function(event) {
@@ -298,8 +291,7 @@
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', function() {
         // Redirect to login if not authenticated
-        const token = Auth.getToken();
-        if (!token) {
+        if (!Auth.isAuthenticated()) {
             Auth.navigateTo('/auth/login');
             return;
         }

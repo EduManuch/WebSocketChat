@@ -97,11 +97,18 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    jwtToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   e.UseTls,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(e.TokenTTL.Seconds()),
+	})
+
 	loginResponse := types.LoginResponse{
-		Token: jwtToken,
-		User: types.UserLoginResponse{
-			Username: req.Username,
-		},
+		Username: req.Username,
 	}
 
 	w.WriteHeader(http.StatusOK)
