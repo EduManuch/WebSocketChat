@@ -2,3 +2,4 @@
 *.crt
 *.pem
 grafana_data/*
+!grafana_data/.gitkeep
