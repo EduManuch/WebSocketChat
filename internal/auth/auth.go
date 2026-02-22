@@ -52,12 +52,12 @@ func NewService(jwtSecret string, tokenTTL time.Duration, JwtSecret string) *Ser
 	}
 }
 
-func (s *Service) Register(username, email, password string) (string, error) {
+func (s *Service) Register(username, email, password string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, exists := s.storage.usernames[username]; exists {
-		return "", errors.New("username exists")
+		return errors.New("username exists")
 	}
 
 	userID := generateUserID()
@@ -73,7 +73,7 @@ func (s *Service) Register(username, email, password string) (string, error) {
 	s.storage.usernames[username] = userID
 	log.Debugf("user registered: %v (ID: %v)", username, userID)
 
-	return userID, nil
+	return nil
 }
 
 func (s *Service) Login(username, password string) (string, error) {
@@ -103,6 +103,7 @@ func (s *Service) GenerateToken(userID, username string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(s.jwtSecret)
+	log.Println(tokenString)
 	return tokenString, err
 }
 

@@ -79,6 +79,10 @@ type UserLoginResponse struct {
 	Username string `json:"username"`
 }
 
+type RegisterResponse struct {
+	Message string `json:"message"`
+}
+
 type Claims struct {
 	UserID   string
 	Username string
@@ -86,7 +90,7 @@ type Claims struct {
 }
 
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Message string `json:"message"`
 }
 
 const (
