@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
@@ -25,8 +26,8 @@ type Storage struct {
 }
 
 type User struct {
-	name     string
-	password string
+	name         string
+	passwordHash []byte
 }
 
 var (
@@ -60,9 +61,13 @@ func (s *Service) Register(email, password, username string) error {
 	}
 
 	userID := generateUserID()
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
 	user := User{
-		name:     username,
-		password: password,
+		name:         username,
+		passwordHash: hashedPassword,
 	}
 
 	s.storage.users[userID] = user
@@ -80,7 +85,8 @@ func (s *Service) Login(email, password string) error {
 	if !exists {
 		return ErrInvalidCredentials
 	}
-	if s.storage.users[userID].password != password {
+	err := bcrypt.CompareHashAndPassword(s.storage.users[userID].passwordHash, []byte(password))
+	if err != nil {
 		return ErrInvalidPassword
 	}
 
