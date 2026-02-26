@@ -16,6 +16,14 @@ type WsHandler struct {
 }
 
 func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, ws types.WsServer) {
+	// claims, ok := r.Context().Value("user").(*types.Claims)
+	// if !ok || claims == nil {
+ //  		log.Error("User not found in context")
+ //        w.WriteHeader(http.StatusUnauthorized)
+ //        return
+	// }
+	// log.Debugf("WebSocket connection for user: %s", claims.Username)
+	
 	conn, err := h.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Errorf("Error with websocket connection: %v", err)

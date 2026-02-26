@@ -2,9 +2,13 @@ package auth
 
 import (
 	"WebSocketChat/internal/types"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -34,10 +38,11 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrEmailExists        = errors.New("email exists")
+	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
 )
 
-func NewService(jwtSecret string, tokenTTL time.Duration, JwtSecret string) *Service {
-	if JwtSecret == "" {
+func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
+	if jwtSecret == "" {
 		log.Error("Jwt secret is empty")
 		return nil
 	}
@@ -94,18 +99,71 @@ func (s *Service) Login(email, password string) error {
 }
 
 func (s *Service) GenerateToken(username string) (string, error) {
+	now := time.Now()
+	expiresAt := now.Add(s.tokenTTL)
+
+	log.Debugf("Generating token for %s: now=%v, tokenTTL=%v, expiresAt=%v",
+		username, now, s.tokenTTL, expiresAt)
+
 	claims := types.Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.tokenTTL)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Issuer:    "websocket-chat",
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(s.jwtSecret)
 
+	log.Debugf("Token generated: len=%d", len(tokenString))
 	return tokenString, err
+}
+
+func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, err := s.ValidateToken(r)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+			log.Errorf("Token validation error: %v", err.Error())
+			return
+		}
+		log.Debugf("Token validated for user: %s", claims.Username)
+
+		ctx := context.WithValue(r.Context(), "user", claims)
+		next(w, r.WithContext(ctx))
+	}
+}
+
+func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
+	tokenString, err := s.extractToken(r)
+	if err != nil {
+		return nil, err
+	}
+	claims := &types.Claims{}
+
+	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+		return s.jwtSecret, nil
+	},
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithIssuer("websocket-chat"),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+
+	return claims, nil
+}
+
+func (s *Service) extractToken(r *http.Request) (string, error) {
+	cookie, err := r.Cookie("auth_token")
+	if err != nil || cookie.Value == "" {
+		return "", ErrUnauthNoToken
+	}
+	return cookie.Value, nil
 }
 
 func generateUserID() string {

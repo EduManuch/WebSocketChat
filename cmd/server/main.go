@@ -38,9 +38,10 @@ func init() {
 	slOrigins := strings.Split(strOrigins, ",")
 	envs.Origins = make(map[string]struct{})
 	envs.JwtSecret = os.Getenv("JWT_SECRET")
-	TokenTTL, err := strconv.Atoi(os.Getenv("TOKEN_TTL"))
+	tokenTTLStr := os.Getenv("TOKEN_TTL")
+	TokenTTL, err := strconv.Atoi(tokenTTLStr)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Invalid TOKEN_TTL value '%s': %v", tokenTTLStr, err)
 	}
 	envs.TokenTTL = time.Duration(TokenTTL) * time.Second
 	for _, s := range slOrigins {
@@ -48,6 +49,9 @@ func init() {
 	}
 	debugLevel := os.Getenv("DEBUG")
 	envs.Debug = debugLevel == "enable"
+	if envs.Debug {
+		log.SetLevel(log.DebugLevel)
+	}
 }
 
 func main() {
