@@ -5,6 +5,7 @@ import (
 	"WebSocketChat/internal/types"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -16,20 +17,21 @@ type WsHandler struct {
 }
 
 func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, ws types.WsServer) {
-	// claims, ok := r.Context().Value("user").(*types.Claims)
-	// if !ok || claims == nil {
- //  		log.Error("User not found in context")
- //        w.WriteHeader(http.StatusUnauthorized)
- //        return
-	// }
-	// log.Debugf("WebSocket connection for user: %s", claims.Username)
-	
 	conn, err := h.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Errorf("Error with websocket connection: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	claims, ok := r.Context().Value("user").(*types.Claims)
+	if !ok || claims == nil {
+		log.Error("User not found in context")
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "token expired"), time.Now().Add(time.Second))
+		_ = conn.Close()
+		return
+	}
+	log.Debugf("WebSocket connection for user: %s", claims.Username)
 	log.Debugf("Client with address %s connected", conn.RemoteAddr().String())
 
 	client := ws.NewClient(conn)
@@ -121,4 +123,16 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(loginResponse)
+}
+
+func (h *WsHandler) Me(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("user").(*types.Claims)
+	if !ok || claims == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(types.ErrorResponse{"Unauthorized"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})
 }

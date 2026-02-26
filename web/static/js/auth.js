@@ -2,19 +2,19 @@
  * Auth Module - Login, Register, and Client-side Routing
  */
 
-const Auth = (function() {
-    'use strict';
+const Auth = (function () {
+    "use strict";
 
     // Storage keys
     // TOKEN removed - token is now stored in HttpOnly cookie
-    const USER_KEY = 'auth_user';
+    const USER_KEY = "auth_user";
 
     // API endpoints
     const API_ENDPOINTS = {
-        login: '/auth/login',
-        register: '/auth/register',
-        logout: '/auth/logout',
-        me: '/auth/me'
+        login: "/auth/login",
+        register: "/auth/register",
+        logout: "/auth/logout",
+        me: "/auth/me",
     };
 
     // Current authenticated user
@@ -25,14 +25,14 @@ const Auth = (function() {
      */
     function initRouter() {
         // Handle browser back/forward buttons
-        window.addEventListener('popstate', handlePopState);
-        
+        window.addEventListener("popstate", handlePopState);
+
         // Intercept all links with data-router attribute
-        document.addEventListener('click', function(e) {
-            const link = e.target.closest('a[data-router]');
+        document.addEventListener("click", function (e) {
+            const link = e.target.closest("a[data-router]");
             if (link) {
                 e.preventDefault();
-                const href = link.getAttribute('href');
+                const href = link.getAttribute("href");
                 navigateTo(href);
             }
         });
@@ -48,17 +48,17 @@ const Auth = (function() {
         const path = window.location.pathname;
 
         // If on login/register page but already authenticated, redirect to chat
-        if (path === '/auth/login' || path === '/auth/register') {
+        if (path === "/auth/login" || path === "/auth/register") {
             if (isAuthenticated()) {
-                navigateTo('/', true);
+                navigateTo("/", true);
                 return;
             }
         }
 
         // If on main page and not authenticated, redirect to login
-        if (path === '/') {
+        if (path === "/") {
             if (!isAuthenticated()) {
-                navigateTo('/auth/login', true);
+                navigateTo("/auth/login", true);
                 return;
             }
         }
@@ -78,9 +78,9 @@ const Auth = (function() {
      */
     function navigateTo(path, replace = false) {
         if (replace) {
-            history.replaceState({ page: path }, '', path);
+            history.replaceState({ page: path }, "", path);
         } else {
-            history.pushState({ page: path }, '', path);
+            history.pushState({ page: path }, "", path);
         }
         renderPage(path);
     }
@@ -110,7 +110,7 @@ const Auth = (function() {
         if (currentUser) {
             return currentUser;
         }
-        
+
         const userStr = localStorage.getItem(USER_KEY);
         if (userStr) {
             currentUser = JSON.parse(userStr);
@@ -133,26 +133,27 @@ const Auth = (function() {
         // Cookie is sent automatically by the browser
         try {
             const response = await fetch(API_ENDPOINTS.me, {
-                method: 'GET',
-                credentials: 'same-origin',
+                method: "GET",
+                credentials: "same-origin",
                 headers: {
-                    'Content-Type': 'application/json'
-                }
+                    "Content-Type": "application/json",
+                },
             });
 
             if (response.ok) {
                 const data = await response.json();
-                currentUser = data.user;
-                if (currentUser) {
+                // Server returns {user: "username"}, convert to object
+                if (data.user) {
+                    currentUser = { username: data.user };
                     localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
                 }
                 return currentUser;
-            } else {
-                // Token invalid, clear auth
+            } else if (response.status === 401) {
+                // Token invalid or expired, clear auth
                 clearAuth();
             }
         } catch (error) {
-            console.error('Auth check failed:', error);
+            console.error("Auth check failed:", error);
         }
 
         return null;
@@ -164,24 +165,26 @@ const Auth = (function() {
     async function login(username, password) {
         try {
             const response = await fetch(API_ENDPOINTS.login, {
-                method: 'POST',
-                credentials: 'same-origin',
+                method: "POST",
+                credentials: "same-origin",
                 headers: {
-                    'Content-Type': 'application/json'
+                    "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password }),
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || 'Login failed');
+                throw new Error(data.message || "Login failed");
             }
 
-            // Token is now in HttpOnly cookie, just store user info
+            // Token is in HttpOnly cookie, store user info
+            // Server returns {user: "username"}, convert to object
             if (data.user) {
-                localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-                currentUser = data.user;
+                const userObj = { username: data.user };
+                localStorage.setItem(USER_KEY, JSON.stringify(userObj));
+                currentUser = userObj;
             }
 
             return { success: true, data };
@@ -196,17 +199,17 @@ const Auth = (function() {
     async function register(username, email, password) {
         try {
             const response = await fetch(API_ENDPOINTS.register, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                    'Content-Type': 'application/json'
+                    "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ username, email, password })
+                body: JSON.stringify({ username, email, password }),
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || 'Registration failed');
+                throw new Error(data.message || "Registration failed");
             }
 
             return { success: true, data };
@@ -222,14 +225,14 @@ const Auth = (function() {
         // Cookie is sent automatically by the browser
         try {
             await fetch(API_ENDPOINTS.logout, {
-                method: 'POST',
-                credentials: 'same-origin'
+                method: "POST",
+                credentials: "same-origin",
             });
         } catch (error) {
-            console.error('Logout request failed:', error);
+            console.error("Logout request failed:", error);
         } finally {
             clearAuth();
-            navigateTo('/auth/login');
+            navigateTo("/auth/login");
         }
     }
 
@@ -242,20 +245,42 @@ const Auth = (function() {
     }
 
     /**
+     * Handle token expiration - redirect to login
+     */
+    function handleTokenExpired() {
+        console.log("Token expired, redirecting to login");
+        clearAuth();
+        navigateTo("/auth/login");
+    }
+
+    /**
+     * Start periodic token validation
+     */
+    function startTokenCheck() {
+        setInterval(async () => {
+            const user = await checkAuthStatus();
+            if (!user && isAuthenticated()) {
+                // Was authenticated but token is now invalid
+                handleTokenExpired();
+            }
+        }, 60000); // Check every minute
+    }
+
+    /**
      * Validate form fields
      */
     function validateForm(form) {
         let isValid = true;
-        const inputs = form.querySelectorAll('input[required]');
-        
-        inputs.forEach(input => {
+        const inputs = form.querySelectorAll("input[required]");
+
+        inputs.forEach((input) => {
             if (!input.value.trim()) {
-                input.classList.add('is-invalid');
-                input.classList.remove('is-valid');
+                input.classList.add("is-invalid");
+                input.classList.remove("is-valid");
                 isValid = false;
             } else {
-                input.classList.remove('is-invalid');
-                input.classList.add('is-valid');
+                input.classList.remove("is-invalid");
+                input.classList.add("is-valid");
             }
         });
 
@@ -266,9 +291,9 @@ const Auth = (function() {
      * Clear form validation
      */
     function clearValidation(form) {
-        const inputs = form.querySelectorAll('input');
-        inputs.forEach(input => {
-            input.classList.remove('is-invalid', 'is-valid');
+        const inputs = form.querySelectorAll("input");
+        inputs.forEach((input) => {
+            input.classList.remove("is-invalid", "is-valid");
         });
     }
 
@@ -279,7 +304,7 @@ const Auth = (function() {
         const errorEl = document.getElementById(elementId);
         if (errorEl) {
             errorEl.textContent = message;
-            errorEl.classList.remove('d-none');
+            errorEl.classList.remove("d-none");
         }
     }
 
@@ -289,7 +314,7 @@ const Auth = (function() {
     function hideError(elementId) {
         const errorEl = document.getElementById(elementId);
         if (errorEl) {
-            errorEl.classList.add('d-none');
+            errorEl.classList.add("d-none");
         }
     }
 
@@ -297,14 +322,14 @@ const Auth = (function() {
      * Set loading state on button
      */
     function setLoading(button, isLoading) {
-        const spinner = button.querySelector('.spinner-border');
-        
+        const spinner = button.querySelector(".spinner-border");
+
         if (isLoading) {
             button.disabled = true;
-            if (spinner) spinner.classList.remove('d-none');
+            if (spinner) spinner.classList.remove("d-none");
         } else {
             button.disabled = false;
-            if (spinner) spinner.classList.add('d-none');
+            if (spinner) spinner.classList.add("d-none");
         }
     }
 
@@ -312,14 +337,14 @@ const Auth = (function() {
      * Initialize login form
      */
     function initLogin() {
-        const form = document.getElementById('loginForm');
+        const form = document.getElementById("loginForm");
         if (!form) return;
 
         // Clear any existing errors
-        hideError('loginError');
+        hideError("loginError");
         clearValidation(form);
 
-        form.addEventListener('submit', async function(e) {
+        form.addEventListener("submit", async function (e) {
             e.preventDefault();
 
             // Validate form
@@ -327,12 +352,14 @@ const Auth = (function() {
                 return;
             }
 
-            const username = document.getElementById('loginUsername').value.trim();
-            const password = document.getElementById('loginPassword').value;
+            const username = document
+                .getElementById("loginUsername")
+                .value.trim();
+            const password = document.getElementById("loginPassword").value;
             const submitBtn = form.querySelector('button[type="submit"]');
 
             // Clear previous errors
-            hideError('loginError');
+            hideError("loginError");
             setLoading(submitBtn, true);
 
             // Call login API
@@ -342,24 +369,24 @@ const Auth = (function() {
 
             if (result.success) {
                 // Redirect to main page
-                navigateTo('/', true);
+                navigateTo("/", true);
             } else {
-                showError('loginError', result.error);
+                showError("loginError", result.error);
             }
         });
 
         // Real-time validation
-        form.querySelectorAll('input').forEach(input => {
-            input.addEventListener('blur', function() {
+        form.querySelectorAll("input").forEach((input) => {
+            input.addEventListener("blur", function () {
                 if (this.value.trim()) {
-                    this.classList.remove('is-invalid');
-                    this.classList.add('is-valid');
+                    this.classList.remove("is-invalid");
+                    this.classList.add("is-valid");
                 }
             });
-            
-            input.addEventListener('input', function() {
-                this.classList.remove('is-invalid');
-                hideError('loginError');
+
+            input.addEventListener("input", function () {
+                this.classList.remove("is-invalid");
+                hideError("loginError");
             });
         });
     }
@@ -368,15 +395,15 @@ const Auth = (function() {
      * Initialize register form
      */
     function initRegister() {
-        const form = document.getElementById('registerForm');
+        const form = document.getElementById("registerForm");
         if (!form) return;
 
         // Clear any existing errors/success messages
-        hideError('registerError');
-        hideError('registerSuccess');
+        hideError("registerError");
+        hideError("registerSuccess");
         clearValidation(form);
 
-        form.addEventListener('submit', async function(e) {
+        form.addEventListener("submit", async function (e) {
             e.preventDefault();
 
             // Validate form
@@ -385,24 +412,30 @@ const Auth = (function() {
             }
 
             // Additional validation
-            const password = document.getElementById('registerPassword').value;
-            const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
-            
+            const password = document.getElementById("registerPassword").value;
+            const passwordConfirm = document.getElementById(
+                "registerPasswordConfirm",
+            ).value;
+
             if (password !== passwordConfirm) {
-                const confirmInput = document.getElementById('registerPasswordConfirm');
-                confirmInput.classList.add('is-invalid');
-                confirmInput.classList.remove('is-valid');
-                showError('registerError', 'Passwords do not match');
+                const confirmInput = document.getElementById(
+                    "registerPasswordConfirm",
+                );
+                confirmInput.classList.add("is-invalid");
+                confirmInput.classList.remove("is-valid");
+                showError("registerError", "Passwords do not match");
                 return;
             }
 
-            const username = document.getElementById('registerUsername').value.trim();
-            const email = document.getElementById('registerEmail').value.trim();
+            const username = document
+                .getElementById("registerUsername")
+                .value.trim();
+            const email = document.getElementById("registerEmail").value.trim();
             const submitBtn = form.querySelector('button[type="submit"]');
 
             // Clear previous messages
-            hideError('registerError');
-            hideError('registerSuccess');
+            hideError("registerError");
+            hideError("registerSuccess");
             setLoading(submitBtn, true);
 
             // Call register API
@@ -412,49 +445,59 @@ const Auth = (function() {
 
             if (result.success) {
                 // Show success message and redirect to login
-                const successEl = document.getElementById('registerSuccess');
-                successEl.textContent = 'Account created successfully! Redirecting to login...';
-                successEl.classList.remove('d-none');
+                const successEl = document.getElementById("registerSuccess");
+                successEl.textContent =
+                    "Account created successfully! Redirecting to login...";
+                successEl.classList.remove("d-none");
 
                 setTimeout(() => {
-                    navigateTo('/auth/login');
+                    navigateTo("/auth/login");
                 }, 1500);
             } else {
-                showError('registerError', result.error);
+                showError("registerError", result.error);
             }
         });
 
         // Real-time validation
-        form.querySelectorAll('input').forEach(input => {
-            input.addEventListener('blur', function() {
-                if (this.value.trim() || !this.hasAttribute('required')) {
+        form.querySelectorAll("input").forEach((input) => {
+            input.addEventListener("blur", function () {
+                if (this.value.trim() || !this.hasAttribute("required")) {
                     // Check password match on blur
-                    if (this.id === 'registerPasswordConfirm') {
-                        const password = document.getElementById('registerPassword').value;
+                    if (this.id === "registerPasswordConfirm") {
+                        const password =
+                            document.getElementById("registerPassword").value;
                         if (this.value === password && this.value) {
-                            this.classList.remove('is-invalid');
-                            this.classList.add('is-valid');
+                            this.classList.remove("is-invalid");
+                            this.classList.add("is-valid");
                         }
                     } else if (this.value.trim()) {
-                        this.classList.remove('is-invalid');
-                        this.classList.add('is-valid');
+                        this.classList.remove("is-invalid");
+                        this.classList.add("is-valid");
                     }
                 }
             });
-            
-            input.addEventListener('input', function() {
-                this.classList.remove('is-invalid');
-                hideError('registerError');
-                
+
+            input.addEventListener("input", function () {
+                this.classList.remove("is-invalid");
+                hideError("registerError");
+
                 // Real-time password match check
-                if (this.id === 'registerPassword' || this.id === 'registerPasswordConfirm') {
-                    const password = document.getElementById('registerPassword').value;
-                    const confirm = document.getElementById('registerPasswordConfirm').value;
-                    const confirmInput = document.getElementById('registerPasswordConfirm');
-                    
+                if (
+                    this.id === "registerPassword" ||
+                    this.id === "registerPasswordConfirm"
+                ) {
+                    const password =
+                        document.getElementById("registerPassword").value;
+                    const confirm = document.getElementById(
+                        "registerPasswordConfirm",
+                    ).value;
+                    const confirmInput = document.getElementById(
+                        "registerPasswordConfirm",
+                    );
+
                     if (confirm && password === confirm) {
-                        confirmInput.classList.remove('is-invalid');
-                        confirmInput.classList.add('is-valid');
+                        confirmInput.classList.remove("is-invalid");
+                        confirmInput.classList.add("is-valid");
                     }
                 }
             });
@@ -466,6 +509,7 @@ const Auth = (function() {
      */
     function init() {
         initRouter();
+        startTokenCheck();
     }
 
     // Public API
@@ -479,14 +523,15 @@ const Auth = (function() {
         isAuthenticated: isAuthenticated,
         getCurrentUser: getCurrentUser,
         getToken: getToken,
-        navigateTo: navigateTo
+        navigateTo: navigateTo,
+        clearAuth: clearAuth,
+        handleTokenExpired: handleTokenExpired,
     };
-
 })();
 
 // Auto-initialize on DOM ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() {
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
         Auth.init();
     });
 } else {

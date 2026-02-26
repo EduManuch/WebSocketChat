@@ -116,9 +116,11 @@ func (ws *wsSrv) Start(e *types.EnvConfig) error {
 	ws.mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.RegisterUser(w, r, e)
 	})
-	ws.mux.HandleFunc("/ws",ws.wsHandler.AuthService.JWTMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	ws.mux.HandleFunc("/auth/me", ws.wsHandler.AuthService.JWTMiddleware(ws.wsHandler.Me))
+	ws.mux.HandleFunc("/ws", ws.wsHandler.AuthService.JWTMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.CreateWsConnection(w, r, ws)
 	}))
+
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(e.StaticDir))))
 	ws.mux.Handle("/metrics", promhttp.Handler())
 	ws.mux.Handle("/", http.FileServer(http.Dir(e.TemplateDir)))

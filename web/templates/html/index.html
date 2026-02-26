@@ -1,304 +1,345 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Chat</title>
-    <!-- Bootstrap CSS -->
-    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Auth Styles -->
-    <link href="/static/css/auth.css" rel="stylesheet">
-    <style>
-        #chat {
-            border: 1px solid #ccc;
-            padding: 10px;
-            width: 100%;
-            height: 300px;
-            margin-bottom: 10px;
-            overflow-y: scroll;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-        }
-        .message {
-            margin-bottom: 8px;
-            padding: 5px;
-            border-bottom: 1px solid #ddd;
-            word-wrap: break-word;
-        }
-        .message .address {
-            font-weight: bold;
-        }
-        .message .time {
-            float: right;
-            font-size: 0.75em;
-            color: #888;
-        }
-        .message .text {
-            clear: both;
-            font-size: 0.9em;
-        }
-        .my-message .address {
-            color: #0d6efd;
-        }
-        /* Auth header styles */
-        .chat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .user-avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 14px;
-        }
-        .auth-links a {
-            text-decoration: none;
-            margin-left: 10px;
-        }
-        /* Auth modal */
-        .auth-modal .modal-content {
-            border-radius: 16px;
-            border: none;
-        }
-        .auth-modal .modal-header {
-            border-bottom: none;
-            padding: 20px 24px 10px;
-        }
-        .auth-modal .modal-body {
-            padding: 24px;
-        }
-        .auth-modal .modal-footer {
-            border-top: none;
-            padding: 10px 24px 20px;
-        }
-        /* Not authenticated overlay */
-        #notAuthenticated {
-            display: none;
-            text-align: center;
-            padding: 60px 20px;
-        }
-        #chatContainer {
-            display: none;
-        }
-        #chatContainer.visible {
-            display: block;
-        }
-    </style>
-</head>
-<body class="container-sm py-4">
-<!-- Chat Header -->
-<div class="chat-header">
-    <h2 class="mb-0">WebSocket Chat</h2>
-    <div class="user-info">
-        <span id="userDisplay" class="text-muted"></span>
-        <div id="userAvatar" class="user-avatar d-none"></div>
-        <div class="auth-links">
-            <a href="/auth/login" data-router class="btn btn-outline-primary btn-sm" id="loginBtn">Login</a>
-            <a href="/auth/register" data-router class="btn btn-primary btn-sm" id="registerBtn">Sign Up</a>
-            <button class="btn btn-outline-danger btn-sm d-none" id="logoutBtn">Logout</button>
-        </div>
-    </div>
-</div>
-
-<!-- Not Authenticated Message -->
-<div id="notAuthenticated">
-    <div class="card border-0 shadow-sm">
-        <div class="card-body py-5">
-            <h4 class="card-title mb-3">Welcome to WebSocket Chat</h4>
-            <p class="card-text text-muted mb-4">Please login or create an account to start chatting</p>
-            <div>
-                <a href="/auth/login" data-router class="btn btn-primary me-2">Login</a>
-                <a href="/auth/register" data-router class="btn btn-outline-primary">Sign Up</a>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>WebSocket Chat</title>
+        <!-- Bootstrap CSS -->
+        <link href="/static/css/bootstrap.min.css" rel="stylesheet" />
+        <!-- Auth Styles -->
+        <link href="/static/css/auth.css" rel="stylesheet" />
+        <style>
+            #chat {
+                border: 1px solid #ccc;
+                padding: 10px;
+                width: 100%;
+                height: 300px;
+                margin-bottom: 10px;
+                overflow-y: scroll;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+            }
+            .message {
+                margin-bottom: 8px;
+                padding: 5px;
+                border-bottom: 1px solid #ddd;
+                word-wrap: break-word;
+            }
+            .message .address {
+                font-weight: bold;
+            }
+            .message .time {
+                float: right;
+                font-size: 0.75em;
+                color: #888;
+            }
+            .message .text {
+                clear: both;
+                font-size: 0.9em;
+            }
+            .my-message .address {
+                color: #0d6efd;
+            }
+            /* Auth header styles */
+            .chat-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+            .user-info {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .user-avatar {
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: 600;
+                font-size: 14px;
+            }
+            .auth-links a {
+                text-decoration: none;
+                margin-left: 10px;
+            }
+            /* Auth modal */
+            .auth-modal .modal-content {
+                border-radius: 16px;
+                border: none;
+            }
+            .auth-modal .modal-header {
+                border-bottom: none;
+                padding: 20px 24px 10px;
+            }
+            .auth-modal .modal-body {
+                padding: 24px;
+            }
+            .auth-modal .modal-footer {
+                border-top: none;
+                padding: 10px 24px 20px;
+            }
+            /* Not authenticated overlay */
+            #notAuthenticated {
+                display: none;
+                text-align: center;
+                padding: 60px 20px;
+            }
+            #chatContainer {
+                display: none;
+            }
+            #chatContainer.visible {
+                display: block;
+            }
+        </style>
+    </head>
+    <body class="container-sm py-4">
+        <!-- Chat Header -->
+        <div class="chat-header">
+            <h2 class="mb-0">WebSocket Chat</h2>
+            <div class="user-info">
+                <span id="userDisplay" class="text-muted"></span>
+                <div id="userAvatar" class="user-avatar d-none"></div>
+                <div class="auth-links">
+                    <a
+                        href="/auth/login"
+                        data-router
+                        class="btn btn-outline-primary btn-sm"
+                        id="loginBtn"
+                        >Login</a
+                    >
+                    <a
+                        href="/auth/register"
+                        data-router
+                        class="btn btn-primary btn-sm"
+                        id="registerBtn"
+                        >Sign Up</a
+                    >
+                    <button
+                        class="btn btn-outline-danger btn-sm d-none"
+                        id="logoutBtn"
+                    >
+                        Logout
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-</div>
 
-<!-- Chat Container -->
-<div id="chatContainer">
-    <div id="chat"></div>
-    <div class="input-group">
-        <input type="text" id="messageInput" class="form-control" placeholder="Type a message">
-        <button id="sendButton" class="btn btn-primary">Send</button>
-    </div>
-</div>
+        <!-- Not Authenticated Message -->
+        <div id="notAuthenticated">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body py-5">
+                    <h4 class="card-title mb-3">Welcome to WebSocket Chat</h4>
+                    <p class="card-text text-muted mb-4">
+                        Please login or create an account to start chatting
+                    </p>
+                    <div>
+                        <a
+                            href="/auth/login"
+                            data-router
+                            class="btn btn-primary me-2"
+                            >Login</a
+                        >
+                        <a
+                            href="/auth/register"
+                            data-router
+                            class="btn btn-outline-primary"
+                            >Sign Up</a
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
 
-<!-- Auth JS -->
-<script src="/static/js/auth.js?v=2"></script>
-<script>
-    // Chat application state
-    let socket = null;
-    let isConnected = false;
+        <!-- Chat Container -->
+        <div id="chatContainer">
+            <div id="chat"></div>
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="messageInput"
+                    class="form-control"
+                    placeholder="Type a message"
+                />
+                <button id="sendButton" class="btn btn-primary">Send</button>
+            </div>
+        </div>
 
-    // DOM elements
-    const chat = document.getElementById('chat');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendButton');
-    const chatContainer = document.getElementById('chatContainer');
-    const notAuthenticated = document.getElementById('notAuthenticated');
-    const userDisplay = document.getElementById('userDisplay');
-    const userAvatar = document.getElementById('userAvatar');
-    const loginBtn = document.getElementById('loginBtn');
-    const registerBtn = document.getElementById('registerBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
+        <!-- Auth JS -->
+        <script src="/static/js/auth.js?v=5"></script>
+        <script>
+            // Chat application state
+            let socket = null;
+            let isConnected = false;
 
-    // Initialize auth state and UI
-    function initAuthUI() {
-        const user = Auth.getCurrentUser();
+            // DOM elements
+            const chat = document.getElementById("chat");
+            const messageInput = document.getElementById("messageInput");
+            const sendButton = document.getElementById("sendButton");
+            const chatContainer = document.getElementById("chatContainer");
+            const notAuthenticated =
+                document.getElementById("notAuthenticated");
+            const userDisplay = document.getElementById("userDisplay");
+            const userAvatar = document.getElementById("userAvatar");
+            const loginBtn = document.getElementById("loginBtn");
+            const registerBtn = document.getElementById("registerBtn");
+            const logoutBtn = document.getElementById("logoutBtn");
 
-        if (user) {
-            // User is authenticated
-            showAuthenticatedState(user);
-            initChat();
-        } else {
-            // User is not authenticated
-            showNotAuthenticatedState();
-        }
-    }
+            // Initialize auth state and UI
+            function initAuthUI() {
+                const user = Auth.getCurrentUser();
 
-    // Show authenticated state
-    function showAuthenticatedState(user) {
-        chatContainer.classList.add('visible');
-        notAuthenticated.style.display = 'none';
-        
-        // Update user info
-        userDisplay.textContent = user.username || user.name || 'User';
-        userDisplay.classList.remove('text-muted');
-        
-        // Show avatar
-        userAvatar.classList.remove('d-none');
-        userAvatar.textContent = (user.username || 'U')[0].toUpperCase();
-        
-        // Update buttons
-        loginBtn.classList.add('d-none');
-        registerBtn.classList.add('d-none');
-        logoutBtn.classList.remove('d-none');
-    }
+                if (user) {
+                    showAuthenticatedState(user);
+                    initChat();
+                } else {
+                    showNotAuthenticatedState();
+                }
+            }
 
-    // Show not authenticated state
-    function showNotAuthenticatedState() {
-        chatContainer.classList.remove('visible');
-        notAuthenticated.style.display = 'block';
-        
-        // Clear user info
-        userDisplay.textContent = '';
-        userAvatar.classList.add('d-none');
-        
-        // Update buttons
-        loginBtn.classList.remove('d-none');
-        registerBtn.classList.remove('d-none');
-        logoutBtn.classList.add('d-none');
-    }
+            // Show authenticated state
+            function showAuthenticatedState(user) {
+                chatContainer.classList.add("visible");
+                notAuthenticated.style.display = "none";
+                userDisplay.textContent = user.username || user.name || "User";
+                userDisplay.classList.remove("text-muted");
+                userAvatar.classList.remove("d-none");
+                userAvatar.textContent = (user.username ||
+                    "U")[0].toUpperCase();
+                loginBtn.classList.add("d-none");
+                registerBtn.classList.add("d-none");
+                logoutBtn.classList.remove("d-none");
+            }
 
-    // Initialize WebSocket chat
-    function initChat() {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            // Show not authenticated state
+            function showNotAuthenticatedState() {
+                chatContainer.classList.remove("visible");
+                notAuthenticated.style.display = "block";
+                userDisplay.textContent = "";
+                userAvatar.classList.add("d-none");
+                loginBtn.classList.remove("d-none");
+                registerBtn.classList.remove("d-none");
+                logoutBtn.classList.add("d-none");
+            }
 
-        // Connect to WebSocket - cookie is sent automatically by the browser
-        const wsUrl = protocol + '//' + window.location.host + '/ws';
-        socket = new WebSocket(wsUrl);
+            // Initialize WebSocket chat
+            function initChat() {
+                const protocol =
+                    window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = protocol + "//" + window.location.host + "/ws";
+                socket = new WebSocket(wsUrl);
 
-        // Обработчик для получения сообщений от сервера
-        socket.addEventListener('message', function(event) {
-            const msg = JSON.parse(event.data);
-            addMessage(msg.time, msg.address, msg.message, msg.mymessage);
-        });
+                socket.addEventListener("message", function (event) {
+                    const msg = JSON.parse(event.data);
+                    addMessage(
+                        msg.time,
+                        msg.address,
+                        msg.message,
+                        msg.mymessage,
+                    );
+                });
 
-        socket.addEventListener('open', function() {
-            isConnected = true;
-            console.log('WebSocket connected');
-        });
+                socket.addEventListener("open", function () {
+                    isConnected = true;
+                    console.log("WebSocket connected");
+                });
 
-        socket.addEventListener('close', function() {
-            isConnected = false;
-            console.log('WebSocket disconnected');
-        });
+                socket.addEventListener("close", function (event) {
+                    isConnected = false;
+                    console.log(
+                        "WebSocket disconnected",
+                        event.code,
+                        event.reason,
+                    );
+                    if (
+                        event.code === 4001 ||
+                        event.reason === "token expired"
+                    ) {
+                        Auth.handleTokenExpired();
+                    }
+                });
 
-        socket.addEventListener('error', function(error) {
-            console.error('WebSocket error:', error);
-        });
-    }
+                socket.addEventListener("error", function (error) {
+                    console.error("WebSocket error:", error);
+                });
+            }
 
-    // Добавление сообщения в чат
-    function addMessage(time, address, message, isMyMessage) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('message', 'p-2', 'bg-light', 'rounded');
-        if (isMyMessage) {
-            messageElement.classList.add('my-message');
-        }
+            // Add message to chat
+            function addMessage(time, address, message, isMyMessage) {
+                const messageElement = document.createElement("div");
+                messageElement.classList.add(
+                    "message",
+                    "p-2",
+                    "bg-light",
+                    "rounded",
+                );
+                if (isMyMessage) {
+                    messageElement.classList.add("my-message");
+                }
 
-        const addressElement = document.createElement('div');
-        addressElement.classList.add('address');
-        addressElement.textContent = address;
+                const addressElement = document.createElement("div");
+                addressElement.classList.add("address");
+                addressElement.textContent = address;
 
-        const timeElement = document.createElement('div');
-        timeElement.classList.add('time');
-        timeElement.textContent = time;
+                const timeElement = document.createElement("div");
+                timeElement.classList.add("time");
+                timeElement.textContent = time;
 
-        const textElement = document.createElement('div');
-        textElement.classList.add('text');
-        textElement.textContent = message;
+                const textElement = document.createElement("div");
+                textElement.classList.add("text");
+                textElement.textContent = message;
 
-        messageElement.appendChild(addressElement);
-        messageElement.appendChild(timeElement);
-        messageElement.appendChild(textElement);
+                messageElement.appendChild(addressElement);
+                messageElement.appendChild(timeElement);
+                messageElement.appendChild(textElement);
 
-        chat.appendChild(messageElement);
-        chat.scrollTop = chat.scrollHeight;
-    }
+                chat.appendChild(messageElement);
+                chat.scrollTop = chat.scrollHeight;
+            }
 
-    // Отправка сообщения
-    function sendMessage() {
-        const message = messageInput.value;
-        if (message && isConnected) {
-            socket.send(JSON.stringify({ message: message }));
-            messageInput.value = '';
-        } else if (!isConnected) {
-            console.warn('WebSocket not connected');
-        }
-    }
+            // Send message
+            function sendMessage() {
+                const message = messageInput.value;
+                if (message && isConnected) {
+                    socket.send(JSON.stringify({ message: message }));
+                    messageInput.value = "";
+                } else if (!isConnected) {
+                    console.warn("WebSocket not connected");
+                }
+            }
 
-    // Event listeners
-    sendButton.addEventListener('click', sendMessage);
+            // Event listeners
+            sendButton.addEventListener("click", sendMessage);
 
-    messageInput.addEventListener('keypress', function(event) {
-        if (event.key === 'Enter') {
-            sendMessage();
-        }
-    });
+            messageInput.addEventListener("keypress", function (event) {
+                if (event.key === "Enter") {
+                    sendMessage();
+                }
+            });
 
-    // Logout handler
-    logoutBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (confirm('Are you sure you want to logout?')) {
-            Auth.logout();
-        }
-    });
+            // Logout handler
+            logoutBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                if (confirm("Are you sure you want to logout?")) {
+                    Auth.logout();
+                }
+            });
 
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        // Redirect to login if not authenticated
-        if (!Auth.isAuthenticated()) {
-            Auth.navigateTo('/auth/login');
-            return;
-        }
-        initAuthUI();
-    });
-</script>
-<!-- Bootstrap JS -->
-<script src="/static/js/bootstrap.bundle.min.js"></script>
-</body>
+            // Initialize on page load
+            document.addEventListener("DOMContentLoaded", function () {
+                if (!Auth.isAuthenticated()) {
+                    Auth.navigateTo("/auth/login");
+                    return;
+                }
+                initAuthUI();
+            });
+        </script>
+        <!-- Bootstrap JS -->
+        <script src="/static/js/bootstrap.bundle.min.js"></script>
+    </body>
 </html>
