@@ -106,6 +106,7 @@ func (s *Service) GenerateToken(username string) (string, error) {
 	claims := types.Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Audience: jwt.ClaimStrings{"ws"},
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    "websocket-chat",
@@ -124,8 +125,8 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 		claims, err := s.ValidateToken(r)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
-			log.Errorf("Token validation error: %v", err.Error())
+			json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+			log.Debugf("Token validation error: %v", err.Error())
 			return
 		}
 		log.Debugf("Token validated for user: %s", claims.Username)
@@ -143,10 +144,14 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	claims := &types.Claims{}
 
 	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return s.jwtSecret, nil
 	},
 		jwt.WithValidMethods([]string{"HS256"}),
 		jwt.WithIssuer("websocket-chat"),
+		jwt.WithAudience("ws"),
 	)
 
 	if err != nil {
