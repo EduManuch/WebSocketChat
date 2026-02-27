@@ -83,12 +83,8 @@ func (s *Service) Register(email, password, username string) error {
 }
 
 func (s *Service) Login(email, password string) error {
-	s.storage.mu.RLock()
-	userID, exists := s.storage.emails[email]
-	user, ok := s.storage.users[userID]
-	s.storage.mu.RUnlock()
-
-	if !exists || !ok {
+	user, ok :=	s.storage.GetUserByEmail(email)
+	if !ok {
 		return ErrInvalidCredentials
 	}
 	
@@ -158,6 +154,18 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func (s *Storage) GetUserByEmail(email string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.Unlock()
+	
+	userID, exists := s.emails[email]
+	if !exists {
+		return User{}, false
+	}
+	user, ok := s.users[userID]
+	return user, ok
 }
 
 func extractToken(r *http.Request) (string, error) {
