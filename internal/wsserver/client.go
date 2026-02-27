@@ -41,8 +41,9 @@ func (ws *wsSrv) ReadFromClient(c *types.SClient) {
 	})
 
 	for {
-		var msg types.WsMessage
-		if err := c.Conn.ReadJSON(&msg); err != nil {
+		// var msg types.WsMessage
+		msg := &types.WsMessage{}
+		if err := c.Conn.ReadJSON(msg); err != nil {
 			log.Debugf("Client disconnetced: %v", err)
 			return
 		}
@@ -53,14 +54,14 @@ func (ws *wsSrv) ReadFromClient(c *types.SClient) {
 		msg.Time = time.Now().Format("15:04")
 
 		select {
-		case ws.broadcast <- &msg:
+		case ws.broadcast <- msg:
 		case <-c.Ctx.Done():
 			return
 		}
 
 		if ws.wsKafka.KChan != nil {
 			select {
-			case ws.wsKafka.KChan <- &msg:
+			case ws.wsKafka.KChan <- msg:
 			case <-ws.wsKafka.KCtx.Done():
 			default:
 				metrics.KafkaDropped.Inc()
