@@ -38,6 +38,9 @@ func init() {
 	slOrigins := strings.Split(strOrigins, ",")
 	envs.Origins = make(map[string]struct{})
 	envs.JwtSecret = os.Getenv("JWT_SECRET")
+	if envs.JwtSecret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
 	tokenTTLStr := os.Getenv("TOKEN_TTL")
 	TokenTTL, err := strconv.Atoi(tokenTTLStr)
 	if err != nil {

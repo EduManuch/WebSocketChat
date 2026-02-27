@@ -93,7 +93,7 @@ func NewWsServer(e *types.EnvConfig) (types.WsServer, error) {
 		wsHandler: wsHandler,
 		broadcast: broadcastChan,
 		clients: clients{
-			mutex:     &sync.RWMutex{},
+			mutex:     sync.RWMutex{},
 			wsClients: make(map[*types.SClient]struct{}, 1024),
 		},
 		connChan:    make(chan *types.SClient, 1024),

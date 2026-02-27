@@ -8,7 +8,7 @@ import (
 )
 
 type clients struct {
-	mutex     *sync.RWMutex
+	mutex     sync.RWMutex
 	wsClients map[*types.SClient]struct{} //map[*websocket.Conn]struct{}
 }
 
