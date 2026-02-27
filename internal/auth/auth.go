@@ -58,8 +58,8 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 }
 
 func (s *Service) Register(email, password, username string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storage.mu.Lock()
+	defer s.storage.mu.Unlock()
 
 	if _, exists := s.storage.emails[email]; exists {
 		return ErrEmailExists
