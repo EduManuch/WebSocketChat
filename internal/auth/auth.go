@@ -126,7 +126,7 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 		claims, err := s.ValidateToken(r)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+			json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 			log.Errorf("Token validation error: %v", err.Error())
 			return
 		}
