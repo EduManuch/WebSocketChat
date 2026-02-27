@@ -21,12 +21,12 @@ type Service struct {
 	storage   *Storage
 	jwtSecret []byte
 	tokenTTL  time.Duration
-	mu        sync.RWMutex
 }
 
 type Storage struct {
 	users  map[string]User   // userID -> User
 	emails map[string]string // email -> userID
+	mu     sync.RWMutex
 }
 
 type User struct {
@@ -83,14 +83,16 @@ func (s *Service) Register(email, password, username string) error {
 }
 
 func (s *Service) Login(email, password string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	s.storage.mu.RLock()
 	userID, exists := s.storage.emails[email]
-	if !exists {
+	user, ok := s.storage.users[userID]
+	s.storage.mu.RUnlock()
+
+	if !exists || !ok {
 		return ErrInvalidCredentials
 	}
-	err := bcrypt.CompareHashAndPassword(s.storage.users[userID].passwordHash, []byte(password))
+	
+	err := bcrypt.CompareHashAndPassword(user.passwordHash, []byte(password))
 	if err != nil {
 		return ErrInvalidPassword
 	}
