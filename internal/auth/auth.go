@@ -174,7 +174,11 @@ func (s *Storage) addUser(email, username string, hashedPassword []byte) error {
 		return ErrEmailExists
 	}
 
-	userID := generateUserID()
+	userID, err := generateUserID()
+	if err != nil {
+		return err
+	}
+	
 	user := User{
 		name:         username,
 		passwordHash: hashedPassword,
@@ -194,10 +198,10 @@ func extractToken(r *http.Request) (string, error) {
 	return cookie.Value, nil
 }
 
-func generateUserID() string {
+func generateUserID() (string, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b) // Рассмотреть вариант с UUID
+	_, err := rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b), err // Рассмотреть вариант с UUID
 }
 
 func normalizeEmail(email string) (string, error) {
