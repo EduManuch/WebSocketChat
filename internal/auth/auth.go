@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ type User struct {
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidPassword    = errors.New("invalid password")
-	ErrInvalidEmail       = errors.New("invalid email")
+	ErrEmptyEmail         = errors.New("emplty email")
 	ErrEmailExists        = errors.New("email exists")
 	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
 )
@@ -136,7 +137,7 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	}
 	claims := &types.Claims{}
 
-	_, err = jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -147,7 +148,7 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 		jwt.WithAudience("ws"),
 	)
 
-	if err != nil {
+	if err != nil || !token.Valid {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
@@ -178,7 +179,7 @@ func (s *Storage) addUser(email, username string, hashedPassword []byte) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user := User{
 		name:         username,
 		passwordHash: hashedPassword,
@@ -206,18 +207,14 @@ func generateUserID() (string, error) {
 
 func normalizeEmail(email string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	if !strings.Contains(email, "@") {
-		return "", ErrInvalidEmail
+	addr, err := mail.ParseAddress(email)
+	if err != nil {
+		return "", fmt.Errorf("invalid email format: %w", err)
 	}
 
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 {
-		return "", ErrInvalidEmail
-	}
-	local, domain := parts[0], parts[1]
-	if local == "" || domain == "" {
-		return "", ErrInvalidEmail
+	if addr.Address == "" {
+		return "", ErrEmptyEmail
 	}
 	
-	return email, nil
+	return addr.Address, nil
 }
