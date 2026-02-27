@@ -41,6 +41,7 @@ var (
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrEmptyEmail         = errors.New("emplty email")
 	ErrEmailExists        = errors.New("email exists")
+	ErrInvalidToken       = errors.New("invalid token")
 	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
 )
 
@@ -148,8 +149,11 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 		jwt.WithAudience("ws"),
 	)
 
-	if err != nil || !token.Valid {
+	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+	if !token.Valid {
+		return nil, ErrInvalidToken
 	}
 
 	return claims, nil
@@ -202,6 +206,9 @@ func extractToken(r *http.Request) (string, error) {
 func generateUserID() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
 	return base64.URLEncoding.EncodeToString(b), err // Рассмотреть вариант с UUID
 }
 
@@ -215,6 +222,6 @@ func normalizeEmail(email string) (string, error) {
 	if addr.Address == "" {
 		return "", ErrEmptyEmail
 	}
-	
+
 	return addr.Address, nil
 }
