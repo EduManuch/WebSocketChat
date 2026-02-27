@@ -140,7 +140,7 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 }
 
 func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
-	tokenString, err := s.extractToken(r)
+	tokenString, err := extractToken(r)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	return claims, nil
 }
 
-func (s *Service) extractToken(r *http.Request) (string, error) {
+func extractToken(r *http.Request) (string, error) {
 	cookie, err := r.Cookie("auth_token")
 	if err != nil || cookie.Value == "" {
 		return "", ErrUnauthNoToken
