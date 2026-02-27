@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ type User struct {
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidPassword    = errors.New("invalid password")
+	ErrInvalidEmail       = errors.New("invalid email")
 	ErrEmailExists        = errors.New("email exists")
 	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
 )
@@ -58,37 +60,28 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 }
 
 func (s *Service) Register(email, password, username string) error {
-	s.storage.mu.Lock()
-	defer s.storage.mu.Unlock()
-
-	if _, exists := s.storage.emails[email]; exists {
-		return ErrEmailExists
-	}
-
-	userID := generateUserID()
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	user := User{
-		name:         username,
-		passwordHash: hashedPassword,
+	normEmail, err := normalizeEmail(email)
+	if err != nil {
+		return err
 	}
-
-	s.storage.users[userID] = user
-	s.storage.emails[email] = userID
-	log.Debugf("email registered: %v (ID: %v)", email, userID)
-
-	return nil
+	return s.storage.addUser(normEmail, username, hashedPassword)
 }
 
 func (s *Service) Login(email, password string) error {
-	user, ok :=	s.storage.GetUserByEmail(email)
+	normEmail, err := normalizeEmail(email)
+	if err != nil {
+		return err
+	}
+	user, ok := s.storage.getUserByEmail(normEmail)
 	if !ok {
 		return ErrInvalidCredentials
 	}
-	
-	err := bcrypt.CompareHashAndPassword(user.passwordHash, []byte(password))
+
+	err = bcrypt.CompareHashAndPassword(user.passwordHash, []byte(password))
 	if err != nil {
 		return ErrInvalidPassword
 	}
@@ -106,7 +99,7 @@ func (s *Service) GenerateToken(username string) (string, error) {
 	claims := types.Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Audience: jwt.ClaimStrings{"ws"},
+			Audience:  jwt.ClaimStrings{"ws"},
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    "websocket-chat",
@@ -161,16 +154,36 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	return claims, nil
 }
 
-func (s *Storage) GetUserByEmail(email string) (User, bool) {
+func (s *Storage) getUserByEmail(email string) (User, bool) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
-	
+	defer s.mu.RUnlock()
+
 	userID, exists := s.emails[email]
 	if !exists {
 		return User{}, false
 	}
 	user, ok := s.users[userID]
 	return user, ok
+}
+
+func (s *Storage) addUser(email, username string, hashedPassword []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.emails[email]; exists {
+		return ErrEmailExists
+	}
+
+	userID := generateUserID()
+	user := User{
+		name:         username,
+		passwordHash: hashedPassword,
+	}
+	s.users[userID] = user
+	s.emails[email] = userID
+
+	log.Debugf("user registered ID: %v)", userID)
+	return nil
 }
 
 func extractToken(r *http.Request) (string, error) {
@@ -185,4 +198,22 @@ func generateUserID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b) // Рассмотреть вариант с UUID
+}
+
+func normalizeEmail(email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if !strings.Contains(email, "@") {
+		return "", ErrInvalidEmail
+	}
+
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 {
+		return "", ErrInvalidEmail
+	}
+	local, domain := parts[0], parts[1]
+	if local == "" || domain == "" {
+		return "", ErrInvalidEmail
+	}
+	
+	return email, nil
 }
