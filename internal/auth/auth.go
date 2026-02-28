@@ -23,6 +23,7 @@ type Service struct {
 	storage   *Storage
 	jwtSecret []byte
 	tokenTTL  time.Duration
+	fakeHash []byte // защита от timing attack
 }
 
 type Storage struct {
@@ -35,6 +36,9 @@ type User struct {
 	name         string
 	passwordHash []byte
 }
+
+type contextKey string
+const userKey contextKey = "user"
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
@@ -51,6 +55,13 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 		return nil
 	}
 
+	// защита от timing attack
+	fakeHash, err := bcrypt.GenerateFromPassword([]byte("random-fake-hash-asd3ec34ee"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Error("error generating hash")
+		return nil
+	}
+	
 	return &Service{
 		storage: &Storage{
 			users:  make(map[string]User),
@@ -58,6 +69,7 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 		},
 		jwtSecret: []byte(jwtSecret),
 		tokenTTL:  tokenTTL,
+		fakeHash: fakeHash,
 	}
 }
 
@@ -66,10 +78,12 @@ func (s *Service) Register(email, password, username string) error {
 	if err != nil {
 		return err
 	}
+	
 	normEmail, err := normalizeEmail(email)
 	if err != nil {
 		return err
 	}
+	
 	return s.storage.addUser(normEmail, username, hashedPassword)
 }
 
@@ -78,8 +92,11 @@ func (s *Service) Login(email, password string) error {
 	if err != nil {
 		return err
 	}
+	
 	user, ok := s.storage.getUserByEmail(normEmail)
 	if !ok {
+		// защита от timing attack
+		bcrypt.CompareHashAndPassword(s.fakeHash, []byte("any"))
 		return ErrInvalidCredentials
 	}
 
@@ -126,7 +143,7 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 		}
 		log.Debugf("Token validated for user: %s", claims.Username)
 
-		ctx := context.WithValue(r.Context(), "user", claims)
+		ctx := context.WithValue(r.Context(), userKey, claims)
 		next(w, r.WithContext(ctx))
 	}
 }
