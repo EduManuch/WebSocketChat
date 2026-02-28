@@ -3,8 +3,6 @@ package auth
 import (
 	"WebSocketChat/internal/types"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -23,7 +22,7 @@ type Service struct {
 	storage   *Storage
 	jwtSecret []byte
 	tokenTTL  time.Duration
-	fakeHash []byte // защита от timing attack
+	fakeHash  []byte // защита от timing attack
 }
 
 type Storage struct {
@@ -38,6 +37,7 @@ type User struct {
 }
 
 type contextKey string
+
 const userKey contextKey = "user"
 
 var (
@@ -61,7 +61,7 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 		log.Error("error generating hash")
 		return nil
 	}
-	
+
 	return &Service{
 		storage: &Storage{
 			users:  make(map[string]User),
@@ -69,7 +69,7 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 		},
 		jwtSecret: []byte(jwtSecret),
 		tokenTTL:  tokenTTL,
-		fakeHash: fakeHash,
+		fakeHash:  fakeHash,
 	}
 }
 
@@ -78,12 +78,12 @@ func (s *Service) Register(email, password, username string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	normEmail, err := normalizeEmail(email)
 	if err != nil {
 		return err
 	}
-	
+
 	return s.storage.addUser(normEmail, username, hashedPassword)
 }
 
@@ -92,7 +92,7 @@ func (s *Service) Login(email, password string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	user, ok := s.storage.getUserByEmail(normEmail)
 	if !ok {
 		// защита от timing attack
@@ -221,12 +221,11 @@ func extractToken(r *http.Request) (string, error) {
 }
 
 func generateUserID() (string, error) {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
+	id, err := uuid.NewRandom()
 	if err != nil {
-		return "", err
+		return "", nil
 	}
-	return base64.URLEncoding.EncodeToString(b), err // Рассмотреть вариант с UUID
+	return id.String(), nil
 }
 
 func normalizeEmail(email string) (string, error) {

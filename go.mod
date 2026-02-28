@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.13.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.17.0
