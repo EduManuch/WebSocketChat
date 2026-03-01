@@ -223,7 +223,7 @@ func extractToken(r *http.Request) (string, error) {
 func generateUserID() (string, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	return id.String(), nil
 }
