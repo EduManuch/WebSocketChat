@@ -18,22 +18,25 @@ func TestRegister(t *testing.T) {
 		email       string
 		password    string
 		username    string
+		setupFunc   func(*auth.Service)
 		wantErr     bool
 		expectedErr error
 	}{
-		{"валидные данные", "test@mail.com", "password123", "Bob", false, nil},
-		{"пустой email", "", "password123", "Bob", true, auth.ErrEmptyEmail},
-		{"невалидный email", "not-an-email", "password123", "Bob", true, nil},
-		{"короткий пароль", "user@mail.com", "123", "Bob", false, nil},
+		{"валидные данные", "test@mail.com", "password123", "Bob", nil, false, nil},
+		{"пустой email", "", "password123", "Bob", nil, true, auth.ErrEmptyEmail},
+		{"невалидный email", "not-an-email", "password123", "Bob", nil, true, nil},
+		{"короткий пароль", "user@mail.com", "123", "Bob", nil, false, nil},
+		{"дубликат email", "dup@mail.com", "password123", "Bob", func(s *auth.Service) {
+			_ = s.Register("dup@mail.com", "password123", "User1")
+		}, true, auth.ErrEmailExists},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := auth.NewService("secret", time.Second*300)
 
-			if tt.name == "дубликат email" {
-				_ = service.Register("dup@mail.com", "password123", "Bob")
-				tt.email = "dup@mail.com"
+			if tt.setupFunc != nil {
+				tt.setupFunc(service)
 			}
 
 			err := service.Register(tt.email, tt.password, tt.username)
