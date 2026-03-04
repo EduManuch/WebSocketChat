@@ -36,9 +36,9 @@ type User struct {
 	passwordHash []byte
 }
 
-type contextKey string
+type ContextKey string
 
-const userKey contextKey = "user"
+const UserKey ContextKey = "user"
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
@@ -143,7 +143,7 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 		}
 		log.Debugf("Token validated for user: %s", claims.Username)
 
-		ctx := context.WithValue(r.Context(), userKey, claims)
+		ctx := context.WithValue(r.Context(), UserKey, claims)
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -232,7 +232,7 @@ func normalizeEmail(email string) (string, error) {
 	if email == "" {
 		return "", ErrEmptyEmail
 	}
-	
+
 	email = strings.ToLower(strings.TrimSpace(email))
 	addr, err := mail.ParseAddress(email)
 	if err != nil {

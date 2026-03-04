@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"WebSocketChat/internal/auth"
+	"WebSocketChat/internal/types"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -185,6 +186,87 @@ func TestValidateToken(t *testing.T) {
 				assert.NoError(t, err, tt.name)
 				assert.NotNil(t, claims, tt.name)
 				assert.Equal(t, tt.expectedUser, claims.Username, tt.name)
+			}
+		})
+	}
+}
+
+func TestJWTMiddleware(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupToken     func(*auth.Service) string
+		expectedStatus int
+		expectNextCall bool
+	}{
+		{
+			name: "валидный токен",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateToken("testuser")
+				return token
+			},
+			expectedStatus: http.StatusOK,
+			expectNextCall: true,
+		},
+		{
+			name: "отсутствует токен",
+			setupToken: func(s *auth.Service) string {
+				return ""
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectNextCall: false,
+		},
+		{
+			name: "невалидный токен",
+			setupToken: func(s *auth.Service) string {
+				return "invalid.token.here"
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectNextCall: false,
+		},
+		{
+			name: "истёкший токен",
+			setupToken: func(s *auth.Service) string {
+				sExpired := auth.NewService("secret", time.Second*0)
+				token, _ := sExpired.GenerateToken("testuser")
+				return token
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectNextCall: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := auth.NewService("secret", time.Second*300)
+
+			nextCalled := false
+			var capturedCtxUser string
+
+			next := func(w http.ResponseWriter, r *http.Request) {
+				nextCalled = true
+				claims, ok := r.Context().Value(auth.UserKey).(*types.Claims)
+				if ok && claims != nil {
+					capturedCtxUser = claims.Username
+				}
+				w.WriteHeader(http.StatusOK)
+			}
+
+			handler := service.JWTMiddleware(next)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			tokenString := tt.setupToken(service)
+			if tokenString != "" {
+				req.AddCookie(&http.Cookie{Name: "auth_token", Value: tokenString})
+			}
+
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code, tt.name)
+			assert.Equal(t, tt.expectNextCall, nextCalled, tt.name)
+
+			if tt.expectNextCall {
+				assert.Equal(t, "testuser", capturedCtxUser, tt.name)
 			}
 		})
 	}
