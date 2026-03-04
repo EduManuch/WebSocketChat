@@ -2,9 +2,12 @@ package auth_test
 
 import (
 	"WebSocketChat/internal/auth"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -81,6 +84,107 @@ func TestLogin(t *testing.T) {
 				}
 			} else {
 				assert.NoError(t, err, tt.name)
+			}
+		})
+	}
+}
+
+func TestGenerateToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+	}{
+		{"валидный username", "testuser"},
+		{"пустой username", ""},
+		{"username с пробелами", "user name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := auth.NewService("secret", time.Second*300)
+			token, err := service.GenerateToken(tt.username)
+			assert.NoError(t, err, tt.name)
+			assert.NotEmpty(t, token, tt.name)
+		})
+	}
+}
+
+func TestValidateToken(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupToken    func(*auth.Service) string
+		expectedUser  string
+		wantErr       bool
+		expectedErrIs error
+	}{
+		{
+			name: "валидный токен",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateToken("testuser")
+				return token
+			},
+			expectedUser: "testuser",
+			wantErr:      false,
+		},
+		{
+			name: "истёкший токен",
+			setupToken: func(s *auth.Service) string {
+				sExpired := auth.NewService("secret", time.Second*0)
+				token, _ := sExpired.GenerateToken("testuser")
+				return token
+			},
+			wantErr:       true,
+			expectedErrIs: jwt.ErrTokenExpired,
+		},
+		{
+			name: "неверная подпись",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateToken("testuser")
+				return token + "invalid"
+			},
+			wantErr: true,
+		},
+		{
+			name: "токен от другого секретного ключа",
+			setupToken: func(s *auth.Service) string {
+				sOther := auth.NewService("other-secret", time.Second*300)
+				token, _ := sOther.GenerateToken("testuser")
+				return token
+			},
+			wantErr: true,
+		},
+		{
+			name: "отсутствует токен",
+			setupToken: func(s *auth.Service) string {
+				return ""
+			},
+			wantErr:       true,
+			expectedErrIs: auth.ErrUnauthNoToken,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := auth.NewService("secret", time.Second*300)
+
+			tokenString := tt.setupToken(service)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tokenString != "" {
+				req.AddCookie(&http.Cookie{Name: "auth_token", Value: tokenString})
+			}
+
+			claims, err := service.ValidateToken(req)
+
+			if tt.wantErr {
+				assert.Error(t, err, tt.name)
+				if tt.expectedErrIs != nil {
+					assert.ErrorIs(t, err, tt.expectedErrIs, tt.name)
+				}
+			} else {
+				assert.NoError(t, err, tt.name)
+				assert.NotNil(t, claims, tt.name)
+				assert.Equal(t, tt.expectedUser, claims.Username, tt.name)
 			}
 		})
 	}
