@@ -43,7 +43,7 @@ const userKey contextKey = "user"
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidPassword    = errors.New("invalid password")
-	ErrEmptyEmail         = errors.New("emplty email")
+	ErrEmptyEmail         = errors.New("empty email")
 	ErrEmailExists        = errors.New("email exists")
 	ErrInvalidToken       = errors.New("invalid token")
 	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
@@ -229,14 +229,14 @@ func generateUserID() (string, error) {
 }
 
 func normalizeEmail(email string) (string, error) {
+	if email == "" {
+		return "", ErrEmptyEmail
+	}
+	
 	email = strings.ToLower(strings.TrimSpace(email))
 	addr, err := mail.ParseAddress(email)
 	if err != nil {
 		return "", fmt.Errorf("invalid email format: %w", err)
-	}
-
-	if addr.Address == "" {
-		return "", ErrEmptyEmail
 	}
 
 	return addr.Address, nil
