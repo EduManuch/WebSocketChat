@@ -5,6 +5,7 @@ import (
 	"WebSocketChat/internal/handlers"
 	"WebSocketChat/internal/types"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -216,5 +217,59 @@ func TestLoginUser(t *testing.T) {
 		handler.LoginUser(rr, req, testEnvConfig(t))
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	})
+}
+
+func TestMe(t *testing.T) {
+	t.Run("авторизованный пользователь", func(t *testing.T) {
+		service, handler := testHandler(t)
+		token, _ := service.GenerateToken("testuser")
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+		rr := httptest.NewRecorder()
+
+		// Валидируем токен и добавляем claims в контекст
+		claims, err := service.ValidateToken(req)
+		assert.NoError(t, err)
+
+		ctx := context.WithValue(req.Context(), "user", claims)
+		req = req.WithContext(ctx)
+
+		handler.Me(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		var resp types.LoginResponse
+		err = json.NewDecoder(rr.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Equal(t, "testuser", resp.Username)
+	})
+
+	t.Run("неавторизованный пользователь", func(t *testing.T) {
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		rr := httptest.NewRecorder()
+
+		handler.Me(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("с истёкшим токеном", func(t *testing.T) {
+		service := auth.NewService("secret", time.Second*0) // токен истекает сразу
+		handler := &handlers.WsHandler{AuthService: service}
+		token, _ := service.GenerateToken("testuser")
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+		rr := httptest.NewRecorder()
+
+		// Токен истёк, валидация должна вернуть ошибку
+		_, err := service.ValidateToken(req)
+		assert.Error(t, err)
+
+		handler.Me(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
 	})
 }
