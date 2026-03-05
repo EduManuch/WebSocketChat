@@ -100,3 +100,69 @@ func TestDelClientConn(t *testing.T) {
 	cancel()
 	ws.wg.Wait()
 }
+
+func TestReadFromBroadCastWriteToClients(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Создаём тестовый сервер
+	ws := &wsSrv{
+		connChan:    make(chan *types.SClient, 10),
+		delConnChan: make(chan *types.SClient, 10),
+		broadcast:   make(chan *types.WsMessage, 10),
+		ctx:         ctx,
+		wg:          sync.WaitGroup{},
+		clientsWg:   sync.WaitGroup{},
+		clients: clients{
+			mutex:     sync.RWMutex{},
+			wsClients: make(map[*types.SClient]struct{}),
+		},
+	}
+
+	// Создаём тестовых клиентов с каналами для получения сообщений
+	client1 := &types.SClient{
+		Send: make(chan *types.WsMessage, 10),
+	}
+	client2 := &types.SClient{
+		Send: make(chan *types.WsMessage, 10),
+	}
+
+	// Добавляем клиентов в мапу
+	ws.clients.mutex.Lock()
+	ws.clients.wsClients[client1] = struct{}{}
+	ws.clients.wsClients[client2] = struct{}{}
+	ws.clients.mutex.Unlock()
+
+	// Запускаем ReadFromBroadCastWriteToClients в горутине
+	ws.wg.Add(1)
+	go ws.ReadFromBroadCastWriteToClients()
+
+	// Отправляем тестовое сообщение в broadcast
+	testMsg := &types.WsMessage{
+		Message: "Hello, clients!",
+		Time:    "12:00",
+	}
+	ws.broadcast <- testMsg
+
+	// Даём время на обработку
+	time.Sleep(50 * time.Millisecond)
+
+	// Проверяем, что оба клиента получили сообщение
+	select {
+	case msg := <-client1.Send:
+		assert.Equal(t, "Hello, clients!", msg.Message)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("client1 did not receive message")
+	}
+
+	select {
+	case msg := <-client2.Send:
+		assert.Equal(t, "Hello, clients!", msg.Message)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("client2 did not receive message")
+	}
+
+	// Останавливаем сервер
+	cancel()
+	ws.wg.Wait()
+}
