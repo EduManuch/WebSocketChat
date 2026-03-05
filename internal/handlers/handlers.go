@@ -24,7 +24,7 @@ func (h *WsHandler) CreateWsConnection(w http.ResponseWriter, r *http.Request, w
 		return
 	}
 
-	claims, ok := r.Context().Value("user").(*types.Claims)
+	claims, ok := r.Context().Value(auth.UserKey).(*types.Claims)
 	if !ok || claims == nil {
 		log.Error("User not found in context")
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "token expired"), time.Now().Add(time.Second))
@@ -126,7 +126,7 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 }
 
 func (h *WsHandler) Me(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value("user").(*types.Claims)
+	claims, ok := r.Context().Value(auth.UserKey).(*types.Claims)
 	if !ok || claims == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(types.ErrorResponse{"Unauthorized"})

@@ -22,18 +22,20 @@ type WsServer interface {
 }
 
 type EnvConfig struct {
-	Addr        string
-	Port        string
-	UseTls      bool
-	CertFile    string
-	KeyFile     string
-	TemplateDir string
-	StaticDir   string
-	UseKafka    bool
-	Origins     map[string]struct{}
-	JwtSecret   string
-	TokenTTL    time.Duration
-	Debug       bool
+	Addr             string
+	Port             string
+	UseTls           bool
+	CertFile         string
+	KeyFile          string
+	TemplateDir      string
+	StaticDir        string
+	UseKafka         bool
+	Origins          map[string]struct{}
+	JwtSecret        string
+	TokenTTL         time.Duration
+	RefreshTokenTTL  time.Duration
+	RefreshJwtSecret string
+	Debug            bool
 }
 
 type SClient struct {

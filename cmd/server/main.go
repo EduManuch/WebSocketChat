@@ -37,22 +37,25 @@ func init() {
 	strOrigins := os.Getenv("BACKEND_ORIGINS")
 	slOrigins := strings.Split(strOrigins, ",")
 	envs.Origins = make(map[string]struct{})
+	envs.TokenTTL = getTokenTTL()
+	envs.RefreshTokenTTL = getRefreshTokenTTL()
+	
 	envs.JwtSecret = os.Getenv("JWT_SECRET")
 	if envs.JwtSecret == "" {
 		log.Fatal("JWT_SECRET is required")
 	}
-	tokenTTLStr := os.Getenv("TOKEN_TTL")
-	TokenTTL, err := strconv.Atoi(tokenTTLStr)
-	if err != nil {
-		log.Fatalf("Invalid TOKEN_TTL value '%s': %v", tokenTTLStr, err)
+	
+	envs.RefreshJwtSecret = os.Getenv("REFRESH_JWT_SECRET")
+	if envs.JwtSecret == "" {
+		log.Fatal("REFRESH_JWT_SECRET is required")
 	}
-	envs.TokenTTL = time.Duration(TokenTTL) * time.Second
+	
 	for _, s := range slOrigins {
 		envs.Origins[s] = struct{}{}
 	}
+	
 	debugLevel := os.Getenv("DEBUG")
-	envs.Debug = debugLevel == "enable"
-	if envs.Debug {
+	if debugLevel == "enable" {
 		log.SetLevel(log.DebugLevel)
 	}
 }
@@ -86,4 +89,23 @@ func main() {
 	if err := g.Wait(); err != nil {
 		log.Infof("Shutdown server: %v\n", err)
 	}
+}
+
+func getTokenTTL() time.Duration{
+	tokenTTLStr := os.Getenv("TOKEN_TTL")
+	tokenTTL, err := strconv.Atoi(tokenTTLStr)
+	if err != nil {
+		log.Fatalf("Invalid TOKEN_TTL value '%s': %v", tokenTTLStr, err)
+	}
+	return time.Duration(tokenTTL) * time.Second
+}
+
+func getRefreshTokenTTL() time.Duration{
+	tokenTTLStr := os.Getenv("REFRESH_TOKEN_TTL")
+	tokenTTL, err := strconv.Atoi(tokenTTLStr)
+	if err != nil {
+		log.Fatalf("Invalid TOKEN_TTL value '%s': %v", tokenTTLStr, err)
+	}
+	day := time.Hour * 24
+	return time.Duration(tokenTTL) * day
 }
