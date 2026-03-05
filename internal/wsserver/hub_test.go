@@ -150,16 +150,16 @@ func TestReadFromBroadCastWriteToClients(t *testing.T) {
 	// Проверяем, что оба клиента получили сообщение
 	select {
 	case msg := <-client1.Send:
-		assert.Equal(t, "Hello, clients!", msg.Message)
+		assert.Equal(t, "Hello, clients!", msg.Message, "client1 должно получить сообщение")
 	case <-time.After(100 * time.Millisecond):
-		t.Error("client1 did not receive message")
+		assert.Fail(t, "client1 did not receive message")
 	}
 
 	select {
 	case msg := <-client2.Send:
-		assert.Equal(t, "Hello, clients!", msg.Message)
+		assert.Equal(t, "Hello, clients!", msg.Message, "client2 должно получить сообщение")
 	case <-time.After(100 * time.Millisecond):
-		t.Error("client2 did not receive message")
+		assert.Fail(t, "client2 did not receive message")
 	}
 
 	// Останавливаем сервер
