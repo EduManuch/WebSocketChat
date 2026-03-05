@@ -55,3 +55,48 @@ func TestAddClientConn(t *testing.T) {
 	cancel()
 	ws.wg.Wait()
 }
+
+func TestDelClientConn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Создаём тестовый сервер
+	ws := &wsSrv{
+		connChan:    make(chan *types.SClient, 10),
+		delConnChan: make(chan *types.SClient, 10),
+		broadcast:   make(chan *types.WsMessage, 10),
+		ctx:         ctx,
+		wg:          sync.WaitGroup{},
+		clientsWg:   sync.WaitGroup{},
+		clients: clients{
+			mutex:     sync.RWMutex{},
+			wsClients: make(map[*types.SClient]struct{}),
+		},
+	}
+
+	// Создаём тестового клиента
+	client := &types.SClient{
+		Send: make(chan *types.WsMessage, 10),
+	}
+
+	// Запускаем DelClientConn в горутине
+	ws.wg.Add(1)
+	go ws.DelClientConn()
+
+	// Отправляем клиента в канал удаления (клиента нет в мапе — должна быть безопасная обработка)
+	ws.delConnChan <- client
+
+	// Даём время на обработку
+	time.Sleep(50 * time.Millisecond)
+
+	// Проверяем, что мапа пуста (не паниковало при удалении несуществующего клиента)
+	ws.clients.mutex.RLock()
+	count := len(ws.clients.wsClients)
+	ws.clients.mutex.RUnlock()
+
+	assert.Equal(t, 0, count, "список клиентов должен быть пуст")
+
+	// Останавливаем сервер
+	cancel()
+	ws.wg.Wait()
+}
