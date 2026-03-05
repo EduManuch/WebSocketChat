@@ -128,3 +128,93 @@ func TestRegisterUser(t *testing.T) {
 		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 	})
 }
+
+func TestLoginUser(t *testing.T) {
+	t.Run("успешный логин", func(t *testing.T) {
+		service, handler := testHandler(t)
+
+		// Сначала регистрируем пользователя
+		_ = service.Register("test@example.com", "password123", "testuser")
+
+		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "test@example.com",
+			Password: "password123",
+		})
+
+		handler.LoginUser(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		var resp types.LoginResponse
+		err := json.NewDecoder(rr.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Equal(t, "test@example.com", resp.Username)
+
+		// Проверяем, что cookie установлен
+		cookies := rr.Result().Cookies()
+		assert.Len(t, cookies, 1)
+		assert.Equal(t, "auth_token", cookies[0].Name)
+		assert.NotEmpty(t, cookies[0].Value)
+	})
+
+	t.Run("неверный пароль", func(t *testing.T) {
+		service, handler := testHandler(t)
+		_ = service.Register("test@example.com", "password123", "testuser")
+
+		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "test@example.com",
+			Password: "wrongpassword",
+		})
+
+		handler.LoginUser(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("пользователь не существует", func(t *testing.T) {
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "unknown@example.com",
+			Password: "password123",
+		})
+
+		handler.LoginUser(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("невалидный JSON", func(t *testing.T) {
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader([]byte("invalid json")))
+		rr := httptest.NewRecorder()
+
+		handler.LoginUser(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("GET запрос возвращает HTML", func(t *testing.T) {
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+		rr := httptest.NewRecorder()
+
+		envConfig := &types.EnvConfig{
+			TemplateDir: ".",
+			UseTls:      false,
+			TokenTTL:    time.Second * 300,
+		}
+
+		handler.LoginUser(rr, req, envConfig)
+
+		assert.NotEqual(t, http.StatusInternalServerError, rr.Code)
+	})
+
+	t.Run("неподдерживаемый метод", func(t *testing.T) {
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		req := httptest.NewRequest(http.MethodDelete, "/auth/login", nil)
+		rr := httptest.NewRecorder()
+
+		handler.LoginUser(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	})
+}
