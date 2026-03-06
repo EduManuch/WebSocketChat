@@ -171,11 +171,13 @@
         </div>
 
         <!-- Auth JS -->
-        <script src="/static/js/auth.js?v=5"></script>
+        <script src="/static/js/auth.js?v=6"></script>
         <script>
             // Chat application state
             let socket = null;
             let isConnected = false;
+            let reconnectAttempts = 0;
+            const MAX_RECONNECT_ATTEMPTS = 3;
 
             // DOM elements
             const chat = document.getElementById("chat");
@@ -246,6 +248,7 @@
 
                 socket.addEventListener("open", function () {
                     isConnected = true;
+                    reconnectAttempts = 0; // Reset reconnect counter on successful connection
                     console.log("WebSocket connected");
                 });
 
@@ -260,7 +263,7 @@
                         event.code === 4001 ||
                         event.reason === "token expired"
                     ) {
-                        Auth.handleTokenExpired();
+                        Auth.handleWsTokenExpired();
                     }
                 });
 
@@ -268,6 +271,30 @@
                     console.error("WebSocket error:", error);
                 });
             }
+
+            // Reconnect WebSocket after token refresh
+            function reconnectWebSocket() {
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    console.log(
+                        "Reconnecting WebSocket (attempt " +
+                            reconnectAttempts +
+                            ")",
+                    );
+                    if (socket) {
+                        socket.close();
+                    }
+                    initChat();
+                } else {
+                    console.log(
+                        "Max reconnection attempts reached, redirecting to login",
+                    );
+                    Auth.handleTokenExpired();
+                }
+            }
+
+            // Expose reconnect function globally for Auth module
+            window.reconnectWebSocket = reconnectWebSocket;
 
             // Add message to chat
             function addMessage(time, address, message, isMyMessage) {

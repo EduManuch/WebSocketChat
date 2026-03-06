@@ -15,7 +15,11 @@ const Auth = (function () {
         register: "/auth/register",
         logout: "/auth/logout",
         me: "/auth/me",
+        refresh: "/auth/refresh",
     };
+
+    // Flag to prevent multiple refresh attempts
+    let isRefreshing = false;
 
     // Current authenticated user
     let currentUser = null;
@@ -127,6 +131,42 @@ const Auth = (function () {
     }
 
     /**
+     * Refresh access token using refresh token
+     */
+    async function refreshAccessToken() {
+        if (isRefreshing) {
+            return { success: false, error: "Refresh already in progress" };
+        }
+
+        isRefreshing = true;
+
+        try {
+            const response = await fetch(API_ENDPOINTS.refresh, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            });
+
+            if (response.ok) {
+                // New access token is set in HttpOnly cookie
+                return { success: true };
+            } else if (response.status === 401) {
+                // Refresh token expired or invalid
+                clearAuth();
+                return { success: false, error: "Refresh token expired", expired: true };
+            } else {
+                return { success: false, error: "Failed to refresh token" };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        } finally {
+            isRefreshing = false;
+        }
+    }
+
+    /**
      * Check auth status from server
      */
     async function checkAuthStatus() {
@@ -149,8 +189,16 @@ const Auth = (function () {
                 }
                 return currentUser;
             } else if (response.status === 401) {
-                // Token invalid or expired, clear auth
-                clearAuth();
+                // Access token invalid or expired, try to refresh
+                const refreshResult = await refreshAccessToken();
+
+                if (refreshResult.success) {
+                    // Retry the original request after successful refresh
+                    return checkAuthStatus();
+                } else if (refreshResult.expired) {
+                    // Refresh token expired, redirect to login
+                    handleTokenExpired();
+                }
             }
         } catch (error) {
             console.error("Auth check failed:", error);
@@ -251,6 +299,32 @@ const Auth = (function () {
         console.log("Token expired, redirecting to login");
         clearAuth();
         navigateTo("/auth/login");
+    }
+
+    /**
+     * Handle WebSocket token expiration (code 4001)
+     */
+    function handleWsTokenExpired() {
+        console.log("WebSocket token expired, attempting refresh");
+
+        // Try to refresh the access token
+        refreshAccessToken().then(function (result) {
+            if (result.success) {
+                // Refresh successful, reconnect WebSocket
+                console.log("Token refreshed, reconnecting WebSocket...");
+                if (window.reconnectWebSocket) {
+                    window.reconnectWebSocket();
+                }
+            } else if (result.expired) {
+                // Refresh token expired, redirect to login
+                console.log("Refresh token expired, redirecting to login");
+                handleTokenExpired();
+            } else {
+                // Refresh failed for other reason
+                console.log("Token refresh failed, redirecting to login");
+                handleTokenExpired();
+            }
+        });
     }
 
     /**
@@ -526,6 +600,8 @@ const Auth = (function () {
         navigateTo: navigateTo,
         clearAuth: clearAuth,
         handleTokenExpired: handleTokenExpired,
+        handleWsTokenExpired: handleWsTokenExpired,
+        refreshAccessToken: refreshAccessToken,
     };
 })();
 
