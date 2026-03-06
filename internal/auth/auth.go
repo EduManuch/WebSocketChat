@@ -19,10 +19,12 @@ import (
 )
 
 type Service struct {
-	storage   *Storage
-	jwtSecret []byte
-	tokenTTL  time.Duration
-	fakeHash  []byte // защита от timing attack
+	storage          *Storage
+	jwtSecret        []byte
+	refreshJwtSecret []byte
+	tokenTTL         time.Duration
+	refreshTokenTTL  time.Duration
+	fakeHash         []byte // защита от timing attack
 }
 
 type Storage struct {
@@ -49,7 +51,7 @@ var (
 	ErrUnauthNoToken      = errors.New("unauthorized: no token provided")
 )
 
-func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
+func NewService(jwtSecret, refreshJwtSecret string, tokenTTL, refreshTokenTTL time.Duration) *Service {
 	if jwtSecret == "" {
 		log.Error("Jwt secret is empty")
 		return nil
@@ -67,9 +69,11 @@ func NewService(jwtSecret string, tokenTTL time.Duration) *Service {
 			users:  make(map[string]User),
 			emails: make(map[string]string),
 		},
-		jwtSecret: []byte(jwtSecret),
-		tokenTTL:  tokenTTL,
-		fakeHash:  fakeHash,
+		jwtSecret:        []byte(jwtSecret),
+		refreshJwtSecret: []byte(refreshJwtSecret),
+		tokenTTL:         tokenTTL,
+		refreshTokenTTL:  refreshTokenTTL,
+		fakeHash:         fakeHash,
 	}
 }
 
@@ -108,6 +112,22 @@ func (s *Service) Login(email, password string) error {
 	return nil
 }
 
+func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, err := s.ValidateToken(r)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+			log.Debugf("Token validation error: %v", err.Error())
+			return
+		}
+		log.Debugf("Token validated for user: %s", claims.Username)
+
+		ctx := context.WithValue(r.Context(), UserKey, claims)
+		next(w, r.WithContext(ctx))
+	}
+}
+
 func (s *Service) GenerateToken(username string) (string, error) {
 	now := time.Now()
 	expiresAt := now.Add(s.tokenTTL)
@@ -132,24 +152,8 @@ func (s *Service) GenerateToken(username string) (string, error) {
 	return tokenString, err
 }
 
-func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		claims, err := s.ValidateToken(r)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
-			log.Debugf("Token validation error: %v", err.Error())
-			return
-		}
-		log.Debugf("Token validated for user: %s", claims.Username)
-
-		ctx := context.WithValue(r.Context(), UserKey, claims)
-		next(w, r.WithContext(ctx))
-	}
-}
-
 func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
-	tokenString, err := extractToken(r)
+	tokenString, err := extractToken(r, "auth_token")
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +168,56 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 		jwt.WithValidMethods([]string{"HS256"}),
 		jwt.WithIssuer("websocket-chat"),
 		jwt.WithAudience("ws"),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+	if !token.Valid {
+		return nil, ErrInvalidToken
+	}
+
+	return claims, nil
+}
+
+func (s *Service) GenerateRefreshToken(username string) (string, error) {
+	now := time.Now()
+	expiresAt := now.Add(s.refreshTokenTTL)
+
+	log.Debugf("Generating token for %s: now=%v, tokenTTL=%v, expiresAt=%v",
+		username, now, s.refreshTokenTTL, expiresAt)
+
+	claims := types.Claims{
+		Username: username,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Issuer:    "websocket-chat",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(s.refreshJwtSecret)
+
+	log.Debugf("Token generated: len=%d", len(tokenString))
+	return tokenString, err
+}
+
+func (s *Service) ValidateRefreshToken(r *http.Request) (*types.Claims, error) {
+	tokenString, err := extractToken(r, "refresh_token")
+	if err != nil {
+		return nil, err
+	}
+	claims := &types.Claims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.refreshJwtSecret, nil
+	},
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithIssuer("websocket-chat"),
 	)
 
 	if err != nil {
@@ -212,8 +266,8 @@ func (s *Storage) addUser(email, username string, hashedPassword []byte) error {
 	return nil
 }
 
-func extractToken(r *http.Request) (string, error) {
-	cookie, err := r.Cookie("auth_token")
+func extractToken(r *http.Request, typeToken string) (string, error) {
+	cookie, err := r.Cookie(typeToken)
 	if err != nil || cookie.Value == "" {
 		return "", ErrUnauthNoToken
 	}

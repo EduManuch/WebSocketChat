@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testEnvConfig создаёт стандартную конфигурацию для тестов
@@ -28,7 +29,7 @@ func testEnvConfig(t *testing.T) *types.EnvConfig {
 // testHandler создаёт стандартный обработчик для тестов
 func testHandler(t *testing.T) (*auth.Service, *handlers.WsHandler) {
 	t.Helper()
-	service := auth.NewService("secret", time.Second*300)
+	service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 	return service, &handlers.WsHandler{AuthService: service}
 }
 
@@ -76,7 +77,7 @@ func TestRegisterUser(t *testing.T) {
 	})
 
 	t.Run("невалидный JSON", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader([]byte("invalid json")))
 		rr := httptest.NewRecorder()
 
@@ -103,7 +104,7 @@ func TestRegisterUser(t *testing.T) {
 	})
 
 	t.Run("GET запрос возвращает HTML", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodGet, "/auth/register", nil)
 		rr := httptest.NewRecorder()
 
@@ -120,7 +121,7 @@ func TestRegisterUser(t *testing.T) {
 	})
 
 	t.Run("неподдерживаемый метод", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodDelete, "/auth/register", nil)
 		rr := httptest.NewRecorder()
 
@@ -150,11 +151,26 @@ func TestLoginUser(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "test@example.com", resp.Username)
 
-		// Проверяем, что cookie установлен
+		// Проверяем, что cookie установлены (auth_token и refresh_token)
 		cookies := rr.Result().Cookies()
-		assert.Len(t, cookies, 1)
-		assert.Equal(t, "auth_token", cookies[0].Name)
-		assert.NotEmpty(t, cookies[0].Value)
+		assert.Len(t, cookies, 2)
+
+		var authToken, refreshToken *http.Cookie
+		for _, c := range cookies {
+			if c.Name == "auth_token" {
+				authToken = c
+			}
+			if c.Name == "refresh_token" {
+				refreshToken = c
+			}
+		}
+
+		require.NotNil(t, authToken)
+		require.NotNil(t, refreshToken)
+		assert.NotEmpty(t, authToken.Value)
+		assert.NotEmpty(t, refreshToken.Value)
+		assert.Equal(t, "/", authToken.Path)
+		assert.Equal(t, "/auth/refresh", refreshToken.Path)
 	})
 
 	t.Run("неверный пароль", func(t *testing.T) {
@@ -172,7 +188,7 @@ func TestLoginUser(t *testing.T) {
 	})
 
 	t.Run("пользователь не существует", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
 			Username: "unknown@example.com",
 			Password: "password123",
@@ -184,7 +200,7 @@ func TestLoginUser(t *testing.T) {
 	})
 
 	t.Run("невалидный JSON", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader([]byte("invalid json")))
 		rr := httptest.NewRecorder()
 
@@ -194,7 +210,7 @@ func TestLoginUser(t *testing.T) {
 	})
 
 	t.Run("GET запрос возвращает HTML", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
 		rr := httptest.NewRecorder()
 
@@ -210,7 +226,7 @@ func TestLoginUser(t *testing.T) {
 	})
 
 	t.Run("неподдерживаемый метод", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodDelete, "/auth/login", nil)
 		rr := httptest.NewRecorder()
 
@@ -233,7 +249,7 @@ func TestMe(t *testing.T) {
 		claims, err := service.ValidateToken(req)
 		assert.NoError(t, err)
 
-		ctx := context.WithValue(req.Context(), "user", claims)
+		ctx := context.WithValue(req.Context(), auth.UserKey, claims)
 		req = req.WithContext(ctx)
 
 		handler.Me(rr, req)
@@ -246,7 +262,7 @@ func TestMe(t *testing.T) {
 	})
 
 	t.Run("неавторизованный пользователь", func(t *testing.T) {
-		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", time.Second*300)}
+		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 		rr := httptest.NewRecorder()
 
@@ -256,7 +272,7 @@ func TestMe(t *testing.T) {
 	})
 
 	t.Run("с истёкшим токеном", func(t *testing.T) {
-		service := auth.NewService("secret", time.Second*0) // токен истекает сразу
+		service := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
 		handler := &handlers.WsHandler{AuthService: service}
 		token, _ := service.GenerateToken("testuser")
 
@@ -271,5 +287,135 @@ func TestMe(t *testing.T) {
 		handler.Me(rr, req)
 
 		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+}
+
+func TestRefreshAccessToken(t *testing.T) {
+	t.Run("успешное обновление access токена", func(t *testing.T) {
+		service, handler := testHandler(t)
+
+		// Регистрируем и логиним пользователя
+		_ = service.Register("refresh@example.com", "password123", "refreshuser")
+
+		// Получаем refresh токен
+		refreshToken, err := service.GenerateRefreshToken("refresh@example.com")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+		rr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		// Проверяем, что новый auth_token установлен
+		cookies := rr.Result().Cookies()
+		require.Len(t, cookies, 1)
+		assert.Equal(t, "auth_token", cookies[0].Name)
+		assert.NotEmpty(t, cookies[0].Value)
+	})
+
+	t.Run("отсутствует refresh токен", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		rr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("невалидный refresh токен", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "invalid.token"})
+		rr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("истёкший refresh токен", func(t *testing.T) {
+		service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Second*0)
+		handler := &handlers.WsHandler{AuthService: service}
+
+		// Генерируем истёкший refresh токен
+		refreshToken, _ := service.GenerateRefreshToken("testuser")
+		time.Sleep(time.Millisecond * 100) // Ждём истечения
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+		rr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("неподдерживаемый метод", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/refresh", nil)
+		rr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	})
+
+	t.Run("полный цикл: логин -> refresh", func(t *testing.T) {
+		service, handler := testHandler(t)
+
+		// 1. Регистрируем пользователя
+		_ = service.Register("fullcycle@example.com", "password123", "fulluser")
+
+		// 2. Логинимся и получаем токены
+		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "fullcycle@example.com",
+			Password: "password123",
+		})
+		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, loginRr.Code)
+
+		// 3. Извлекаем refresh токен из cookie
+		var refreshToken string
+		for _, c := range loginRr.Result().Cookies() {
+			if c.Name == "refresh_token" {
+				refreshToken = c.Value
+				break
+			}
+		}
+		require.NotEmpty(t, refreshToken)
+
+		// 4. Обновляем access токен
+		refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		refreshReq.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+		refreshRr := httptest.NewRecorder()
+
+		handler.RefreshAccessToken(refreshRr, refreshReq, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, refreshRr.Code)
+
+		// 5. Проверяем новый access токен
+		var newAuthToken string
+		for _, c := range refreshRr.Result().Cookies() {
+			if c.Name == "auth_token" {
+				newAuthToken = c.Value
+				break
+			}
+		}
+		require.NotEmpty(t, newAuthToken)
+
+		// 6. Проверяем, что новый токен валиден
+		validateReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		validateReq.AddCookie(&http.Cookie{Name: "auth_token", Value: newAuthToken})
+		claims, err := service.ValidateToken(validateReq)
+		require.NoError(t, err)
+		assert.Equal(t, "fullcycle@example.com", claims.Username)
 	})
 }

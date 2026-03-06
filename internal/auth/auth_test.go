@@ -33,7 +33,7 @@ func TestRegister(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := auth.NewService("secret", time.Second*300)
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 
 			if tt.setupFunc != nil {
 				tt.setupFunc(service)
@@ -72,7 +72,7 @@ func TestLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := auth.NewService("secret", time.Second*300)
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 
 			if tt.setupUser {
 				err := service.Register(tt.email, tt.regPassword, "TestUser")
@@ -105,7 +105,7 @@ func TestGenerateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := auth.NewService("secret", time.Second*300)
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 			token, err := service.GenerateToken(tt.username)
 			assert.NoError(t, err, tt.name)
 			assert.NotEmpty(t, token, tt.name)
@@ -133,7 +133,7 @@ func TestValidateToken(t *testing.T) {
 		{
 			name: "истёкший токен",
 			setupToken: func(s *auth.Service) string {
-				sExpired := auth.NewService("secret", time.Second*0)
+				sExpired := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
 				token, _ := sExpired.GenerateToken("testuser")
 				return token
 			},
@@ -151,7 +151,7 @@ func TestValidateToken(t *testing.T) {
 		{
 			name: "токен от другого секретного ключа",
 			setupToken: func(s *auth.Service) string {
-				sOther := auth.NewService("other-secret", time.Second*300)
+				sOther := auth.NewService("other-secret", "refresh-secret", time.Second*300, time.Hour*24)
 				token, _ := sOther.GenerateToken("testuser")
 				return token
 			},
@@ -169,7 +169,7 @@ func TestValidateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := auth.NewService("secret", time.Second*300)
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 
 			tokenString := tt.setupToken(service)
 
@@ -229,7 +229,7 @@ func TestJWTMiddleware(t *testing.T) {
 		{
 			name: "истёкший токен",
 			setupToken: func(s *auth.Service) string {
-				sExpired := auth.NewService("secret", time.Second*0)
+				sExpired := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
 				token, _ := sExpired.GenerateToken("testuser")
 				return token
 			},
@@ -240,7 +240,7 @@ func TestJWTMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := auth.NewService("secret", time.Second*300)
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
 
 			nextCalled := false
 			var capturedCtxUser string
@@ -270,6 +270,116 @@ func TestJWTMiddleware(t *testing.T) {
 
 			if tt.expectNextCall {
 				assert.Equal(t, "testuser", capturedCtxUser, tt.name)
+			}
+		})
+	}
+}
+
+func TestGenerateRefreshToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+	}{
+		{"валидный username", "testuser"},
+		{"пустой username", ""},
+		{"username с пробелами", "user name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
+			token, err := service.GenerateRefreshToken(tt.username)
+			assert.NoError(t, err, tt.name)
+			assert.NotEmpty(t, token, tt.name)
+		})
+	}
+}
+
+func TestValidateRefreshToken(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupToken    func(*auth.Service) string
+		expectedUser  string
+		wantErr       bool
+		expectedErrIs error
+	}{
+		{
+			name: "валидный refresh токен",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateRefreshToken("testuser")
+				return token
+			},
+			expectedUser: "testuser",
+			wantErr:      false,
+		},
+		{
+			name: "истёкший refresh токен",
+			setupToken: func(s *auth.Service) string {
+				sExpired := auth.NewService("secret", "refresh-secret", time.Second*300, time.Second*0)
+				token, _ := sExpired.GenerateRefreshToken("testuser")
+				time.Sleep(time.Millisecond * 100) // Ждём истечения
+				return token
+			},
+			wantErr:       true,
+			expectedErrIs: jwt.ErrTokenExpired,
+		},
+		{
+			name: "неверная подпись refresh токена",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateRefreshToken("testuser")
+				return token + "invalid"
+			},
+			wantErr: true,
+		},
+		{
+			name: "refresh токен от другого секретного ключа",
+			setupToken: func(s *auth.Service) string {
+				sOther := auth.NewService("secret", "other-refresh-secret", time.Second*300, time.Hour*24)
+				token, _ := sOther.GenerateRefreshToken("testuser")
+				return token
+			},
+			wantErr: true,
+		},
+		{
+			name: "отсутствует refresh токен",
+			setupToken: func(s *auth.Service) string {
+				return ""
+			},
+			wantErr:       true,
+			expectedErrIs: auth.ErrUnauthNoToken,
+		},
+		{
+			name: "access токен вместо refresh (разные секреты)",
+			setupToken: func(s *auth.Service) string {
+				token, _ := s.GenerateToken("testuser") // Генерируем access токен
+				return token
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
+
+			tokenString := tt.setupToken(service)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tokenString != "" {
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: tokenString})
+			}
+
+			claims, err := service.ValidateRefreshToken(req)
+
+			if tt.wantErr {
+				assert.Error(t, err, tt.name)
+				if tt.expectedErrIs != nil {
+					assert.ErrorIs(t, err, tt.expectedErrIs, tt.name)
+				}
+			} else {
+				assert.NoError(t, err, tt.name)
+				assert.NotNil(t, claims, tt.name)
+				assert.Equal(t, tt.expectedUser, claims.Username, tt.name)
 			}
 		})
 	}

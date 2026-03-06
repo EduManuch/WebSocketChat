@@ -100,6 +100,7 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
 		return
 	}
+
 	jwtToken, err := h.AuthService.GenerateToken(req.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -117,6 +118,23 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		MaxAge:   int(e.TokenTTL.Seconds()),
 	})
 
+	refreshJwtToken, err := h.AuthService.GenerateRefreshToken(req.Username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshJwtToken,
+		Path:     "/auth/refresh",
+		HttpOnly: true,
+		Secure:   e.UseTls,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(e.RefreshTokenTTL.Seconds()),
+	})
+
 	loginResponse := types.LoginResponse{
 		Username: req.Username,
 	}
@@ -132,6 +150,45 @@ func (h *WsHandler) Me(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(types.ErrorResponse{"Unauthorized"})
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})
+}
+
+func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
+		return
+	}
+
+	claims, err := h.AuthService.ValidateRefreshToken(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+		log.Debugf("Refresh token validation error: %v", err.Error())
+		return
+	}
+	log.Debugf("Token validated for user: %s", claims.Username)
+
+	newAccessToken, err := h.AuthService.GenerateToken(claims.Username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    newAccessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   e.UseTls,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(e.TokenTTL.Seconds()),
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})

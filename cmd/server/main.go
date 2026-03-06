@@ -109,3 +109,6 @@ func getRefreshTokenTTL() time.Duration{
 	day := time.Hour * 24
 	return time.Duration(tokenTTL) * day
 }
+
+
+// TODO: refresh token rotation

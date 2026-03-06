@@ -42,6 +42,7 @@ func NewWsServer(e *types.EnvConfig) (types.WsServer, error) {
 	if e.Debug {
 		log.SetLevel(log.DebugLevel)
 	}
+	
 	wsHandler := handlers.WsHandler{
 		Upgrader: &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -54,7 +55,7 @@ func NewWsServer(e *types.EnvConfig) (types.WsServer, error) {
 				return ok
 			},
 		},
-		AuthService: auth.NewService(e.JwtSecret, e.TokenTTL),
+		AuthService: auth.NewService(e.JwtSecret, e.RefreshJwtSecret, e.TokenTTL, e.RefreshTokenTTL),
 	}
 
 	var k wskafka.Kafka
@@ -115,6 +116,9 @@ func (ws *wsSrv) Start(e *types.EnvConfig) error {
 	})
 	ws.mux.HandleFunc("/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.RegisterUser(w, r, e)
+	})
+	ws.mux.HandleFunc("/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
+		ws.wsHandler.RefreshAccessToken(w, r, e)
 	})
 	ws.mux.HandleFunc("/auth/me", ws.wsHandler.AuthService.JWTMiddleware(ws.wsHandler.Me))
 	ws.mux.HandleFunc("/ws", ws.wsHandler.AuthService.JWTMiddleware(func(w http.ResponseWriter, r *http.Request) {
