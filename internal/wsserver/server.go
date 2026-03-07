@@ -120,6 +120,9 @@ func (ws *wsSrv) Start(e *types.EnvConfig) error {
 	ws.mux.HandleFunc("/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.RefreshAccessToken(w, r, e)
 	})
+	ws.mux.HandleFunc("/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		ws.wsHandler.LogoutHandler(w, r, e)
+	})
 	ws.mux.HandleFunc("/auth/me", ws.wsHandler.AuthService.JWTMiddleware(ws.wsHandler.Me))
 	ws.mux.HandleFunc("/ws", ws.wsHandler.AuthService.JWTMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		ws.wsHandler.CreateWsConnection(w, r, ws)

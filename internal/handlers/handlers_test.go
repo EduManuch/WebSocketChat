@@ -419,3 +419,157 @@ func TestRefreshAccessToken(t *testing.T) {
 		assert.Equal(t, "fullcycle@example.com", claims.Username)
 	})
 }
+
+func TestLogoutHandler(t *testing.T) {
+	t.Run("успешный logout", func(t *testing.T) {
+		service, handler := testHandler(t)
+
+		// Регистрируем и логиним пользователя
+		_ = service.Register("logout@example.com", "password123", "logoutuser")
+
+		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "logout@example.com",
+			Password: "password123",
+		})
+		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, loginRr.Code)
+
+		// Извлекаем токены из cookie
+		var authToken, refreshToken string
+		for _, c := range loginRr.Result().Cookies() {
+			if c.Name == "auth_token" {
+				authToken = c.Value
+			}
+			if c.Name == "refresh_token" {
+				refreshToken = c.Value
+			}
+		}
+		require.NotEmpty(t, authToken)
+		require.NotEmpty(t, refreshToken)
+
+		// Выполняем logout
+		logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		logoutReq.AddCookie(&http.Cookie{Name: "auth_token", Value: authToken})
+		logoutReq.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+		logoutRr := httptest.NewRecorder()
+
+		handler.LogoutHandler(logoutRr, logoutReq, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, logoutRr.Code)
+
+		// Проверяем ответ
+		var resp types.LogoutResponse
+		err := json.NewDecoder(logoutRr.Body).Decode(&resp)
+		require.NoError(t, err)
+		assert.Equal(t, "Logged out successfully", resp.Message)
+
+		// Проверяем, что cookie установлены на удаление
+		cookies := logoutRr.Result().Cookies()
+		require.Len(t, cookies, 2)
+
+		var deleteAuthToken, deleteRefreshToken *http.Cookie
+		for _, c := range cookies {
+			if c.Name == "auth_token" {
+				deleteAuthToken = c
+			}
+			if c.Name == "refresh_token" {
+				deleteRefreshToken = c
+			}
+		}
+
+		require.NotNil(t, deleteAuthToken)
+		require.NotNil(t, deleteRefreshToken)
+		assert.Empty(t, deleteAuthToken.Value)
+		assert.Empty(t, deleteRefreshToken.Value)
+		assert.Equal(t, "/", deleteAuthToken.Path)
+		assert.Equal(t, "/auth/refresh", deleteRefreshToken.Path)
+		assert.Equal(t, -1, deleteAuthToken.MaxAge)
+		assert.Equal(t, -1, deleteRefreshToken.MaxAge)
+	})
+
+	t.Run("logout без токенов", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		rr := httptest.NewRecorder()
+
+		handler.LogoutHandler(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		// Cookie всё равно должны быть установлены на удаление
+		cookies := rr.Result().Cookies()
+		require.Len(t, cookies, 2)
+	})
+
+	t.Run("logout GET методом запрещён", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+		rr := httptest.NewRecorder()
+
+		handler.LogoutHandler(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+
+		var resp types.ErrorResponse
+		err := json.NewDecoder(rr.Body).Decode(&resp)
+		require.NoError(t, err)
+		assert.Equal(t, "Method Not Allowed", resp.Message)
+	})
+
+	t.Run("logout DELETE методом запрещён", func(t *testing.T) {
+		_, handler := testHandler(t)
+
+		req := httptest.NewRequest(http.MethodDelete, "/auth/logout", nil)
+		rr := httptest.NewRecorder()
+
+		handler.LogoutHandler(rr, req, testEnvConfig(t))
+
+		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	})
+
+	t.Run("полный цикл: login -> logout -> проверка токена", func(t *testing.T) {
+		service, handler := testHandler(t)
+
+		// 1. Регистрируем пользователя
+		_ = service.Register("cycle@example.com", "password123", "cycleuser")
+
+		// 2. Логинимся
+		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
+			Username: "cycle@example.com",
+			Password: "password123",
+		})
+		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
+		assert.Equal(t, http.StatusOK, loginRr.Code)
+
+		// 3. Извлекаем auth токен
+		var authToken string
+		for _, c := range loginRr.Result().Cookies() {
+			if c.Name == "auth_token" {
+				authToken = c.Value
+				break
+			}
+		}
+		require.NotEmpty(t, authToken)
+
+		// 4. Проверяем, что токен валиден до logout
+		meReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		meReq.AddCookie(&http.Cookie{Name: "auth_token", Value: authToken})
+		claims, err := service.ValidateToken(meReq)
+		require.NoError(t, err)
+		assert.Equal(t, "cycle@example.com", claims.Username)
+
+		// 5. Выполняем logout
+		logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+		logoutReq.AddCookie(&http.Cookie{Name: "auth_token", Value: authToken})
+		logoutRr := httptest.NewRecorder()
+		handler.LogoutHandler(logoutRr, logoutReq, testEnvConfig(t))
+		assert.Equal(t, http.StatusOK, logoutRr.Code)
+
+		// 6. После logout токен технически остаётся валидным (JWT stateless),
+		// но cookie удалены и браузер не будет их отправлять
+		// Это ожидаемое поведение без blacklist
+	})
+}

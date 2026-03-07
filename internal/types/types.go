@@ -75,6 +75,10 @@ type LoginResponse struct {
 	Username string `json:"user"`
 }
 
+type LogoutResponse struct {
+	Message string `json:"message"`
+}
+
 type RegisterResponse struct {
 	Message string `json:"message"`
 }

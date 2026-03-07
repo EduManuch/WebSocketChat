@@ -45,7 +45,7 @@ func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *type
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Method Not Allowed"})
 		return
 	}
 
@@ -58,26 +58,26 @@ func (h *WsHandler) RegisterUser(w http.ResponseWriter, r *http.Request, e *type
 	var req types.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
 	err := h.AuthService.Register(req.Email, req.Password, req.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(types.RegisterResponse{"Register successfully"})
+	_ = json.NewEncoder(w).Encode(types.RegisterResponse{Message: "Register successfully"})
 }
 
 func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Method Not Allowed"})
 		return
 	}
 
@@ -90,21 +90,21 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 	var req types.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
 	err := h.AuthService.Login(req.Username, req.Password)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
 	jwtToken, err := h.AuthService.GenerateToken(req.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 	refreshJwtToken, err := h.AuthService.GenerateRefreshToken(req.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *WsHandler) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(auth.UserKey).(*types.Claims)
 	if !ok || claims == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(types.ErrorResponse{"Unauthorized"})
+		json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -159,7 +159,7 @@ func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{"Method Not Allowed"})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Method Not Allowed"})
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e
 	newAccessToken, err := h.AuthService.GenerateToken(claims.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(types.ErrorResponse{err.Error()})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
@@ -192,4 +192,37 @@ func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})
+}
+
+func (h *WsHandler) LogoutHandler(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Method Not Allowed"})
+		return
+	}
+	
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   e.UseTls,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+	
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Path:     "/auth/refresh",
+		HttpOnly: true,
+		Secure:   e.UseTls,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(types.LogoutResponse{Message: "Logged out successfully"})
 }
