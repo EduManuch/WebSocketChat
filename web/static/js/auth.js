@@ -210,7 +210,8 @@ const Auth = (function () {
     /**
      * Login user
      */
-    async function login(username, password) {
+    async function login(email, password) {
+        console.log("Login called with email:", email, "password:", password ? "***" : "empty");
         try {
             const response = await fetch(API_ENDPOINTS.login, {
                 method: "POST",
@@ -218,25 +219,25 @@ const Auth = (function () {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ email, password }),
             });
 
             const data = await response.json();
+            console.log("Login response:", response.status, data);
 
             if (!response.ok) {
                 throw new Error(data.message || "Login failed");
             }
 
             // Token is in HttpOnly cookie, store user info
-            // Server returns {user: "username"}, convert to object
-            if (data.user) {
-                const userObj = { username: data.user };
-                localStorage.setItem(USER_KEY, JSON.stringify(userObj));
-                currentUser = userObj;
-            }
+            // Server returns {message: "Login successfully"}
+            const userObj = { username: email };
+            localStorage.setItem(USER_KEY, JSON.stringify(userObj));
+            currentUser = userObj;
 
             return { success: true, data };
         } catch (error) {
+            console.error("Login error:", error.message);
             return { success: false, error: error.message };
         }
     }
@@ -426,8 +427,8 @@ const Auth = (function () {
                 return;
             }
 
-            const username = document
-                .getElementById("loginUsername")
+            const email = document
+                .getElementById("loginEmail")
                 .value.trim();
             const password = document.getElementById("loginPassword").value;
             const submitBtn = form.querySelector('button[type="submit"]');
@@ -437,7 +438,7 @@ const Auth = (function () {
             setLoading(submitBtn, true);
 
             // Call login API
-            const result = await login(username, password);
+            const result = await login(email, password);
 
             setLoading(submitBtn, false);
 

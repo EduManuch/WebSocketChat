@@ -139,7 +139,7 @@ func TestLoginUser(t *testing.T) {
 		_ = service.Register("test@example.com", "password123", "testuser")
 
 		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "test@example.com",
+			Email:    "test@example.com",
 			Password: "password123",
 		})
 
@@ -149,7 +149,7 @@ func TestLoginUser(t *testing.T) {
 		var resp types.LoginResponse
 		err := json.NewDecoder(rr.Body).Decode(&resp)
 		assert.NoError(t, err)
-		assert.Equal(t, "test@example.com", resp.Username)
+		assert.Equal(t, "test@example.com", resp.User)
 
 		// Проверяем, что cookie установлены (auth_token и refresh_token)
 		cookies := rr.Result().Cookies()
@@ -178,7 +178,7 @@ func TestLoginUser(t *testing.T) {
 		_ = service.Register("test@example.com", "password123", "testuser")
 
 		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "test@example.com",
+			Email:    "test@example.com",
 			Password: "wrongpassword",
 		})
 
@@ -190,7 +190,7 @@ func TestLoginUser(t *testing.T) {
 	t.Run("пользователь не существует", func(t *testing.T) {
 		handler := &handlers.WsHandler{AuthService: auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)}
 		req, rr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "unknown@example.com",
+			Email:    "unknown@example.com",
 			Password: "password123",
 		})
 

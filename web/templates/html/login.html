@@ -20,20 +20,20 @@
 
                     <form id="loginForm" class="auth-form" novalidate>
                         <div class="mb-3">
-                            <label for="loginUsername" class="form-label"
-                                >Username</label
+                            <label for="loginEmail" class="form-label"
+                                >Email</label
                             >
                             <input
-                                type="text"
+                                type="email"
                                 class="form-control"
-                                id="loginUsername"
-                                name="username"
-                                placeholder="Enter your username"
+                                id="loginEmail"
+                                name="email"
+                                placeholder="Enter your email"
                                 required
-                                autocomplete="username"
+                                autocomplete="email"
                             />
                             <div class="invalid-feedback">
-                                Please enter your username
+                                Please enter your email
                             </div>
                         </div>
 
@@ -96,7 +96,7 @@
         </div>
 
         <!-- Auth JS -->
-        <script src="/static/js/auth.js?v=6"></script>
+        <script src="/static/js/auth.js?v=10"></script>
         <script>
             // Initialize login form
             document.addEventListener("DOMContentLoaded", function () {

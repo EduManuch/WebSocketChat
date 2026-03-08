@@ -100,7 +100,7 @@ func (s *Service) Login(email, password string) error {
 	user, ok := s.storage.getUserByEmail(normEmail)
 	if !ok {
 		// защита от timing attack
-		bcrypt.CompareHashAndPassword(s.fakeHash, []byte("any"))
+		_ = bcrypt.CompareHashAndPassword(s.fakeHash, []byte("any"))
 		return ErrInvalidCredentials
 	}
 
@@ -117,26 +117,22 @@ func (s *Service) JWTMiddleware(next func(http.ResponseWriter, *http.Request)) h
 		claims, err := s.ValidateToken(r)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+			_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
 			log.Debugf("Token validation error: %v", err.Error())
 			return
 		}
-		log.Debugf("Token validated for user: %s", claims.Username)
+		log.Debug("Token validated")
 
 		ctx := context.WithValue(r.Context(), UserKey, claims)
 		next(w, r.WithContext(ctx))
 	}
 }
 
-func (s *Service) GenerateToken(username string) (string, error) {
+func (s *Service) GenerateToken() (string, error) {
 	now := time.Now()
 	expiresAt := now.Add(s.tokenTTL)
 
-	log.Debugf("Generating token for %s: now=%v, tokenTTL=%v, expiresAt=%v",
-		username, now, s.tokenTTL, expiresAt)
-
 	claims := types.Claims{
-		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Audience:  jwt.ClaimStrings{"ws"},
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
@@ -180,15 +176,11 @@ func (s *Service) ValidateToken(r *http.Request) (*types.Claims, error) {
 	return claims, nil
 }
 
-func (s *Service) GenerateRefreshToken(username string) (string, error) {
+func (s *Service) GenerateRefreshToken() (string, error) {
 	now := time.Now()
 	expiresAt := now.Add(s.refreshTokenTTL)
 
-	log.Debugf("Generating token for %s: now=%v, tokenTTL=%v, expiresAt=%v",
-		username, now, s.refreshTokenTTL, expiresAt)
-
 	claims := types.Claims{
-		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),

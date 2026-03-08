@@ -67,12 +67,12 @@ type RegisterRequest struct {
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
+	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
 type LoginResponse struct {
-	Username string `json:"user"`
+	Message string `json:"message"`
 }
 
 type LogoutResponse struct {

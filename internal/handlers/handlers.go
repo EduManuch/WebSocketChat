@@ -94,14 +94,14 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		return
 	}
 
-	err := h.AuthService.Login(req.Username, req.Password)
+	err := h.AuthService.Login(req.Email, req.Password)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
 		return
 	}
 
-	jwtToken, err := h.AuthService.GenerateToken(req.Username)
+	jwtToken, err := h.AuthService.GenerateToken()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
@@ -118,7 +118,7 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		MaxAge:   int(e.TokenTTL.Seconds()),
 	})
 
-	refreshJwtToken, err := h.AuthService.GenerateRefreshToken(req.Username)
+	refreshJwtToken, err := h.AuthService.GenerateRefreshToken()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
@@ -135,24 +135,20 @@ func (h *WsHandler) LoginUser(w http.ResponseWriter, r *http.Request, e *types.E
 		MaxAge:   int(e.RefreshTokenTTL.Seconds()),
 	})
 
-	loginResponse := types.LoginResponse{
-		Username: req.Username,
-	}
-
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(loginResponse)
+	_ = json.NewEncoder(w).Encode(types.LoginResponse{Message: "Login successfully"})
 }
 
 func (h *WsHandler) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(auth.UserKey).(*types.Claims)
 	if !ok || claims == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})
+	_ = json.NewEncoder(w).Encode(types.LoginResponse{Message: "Success"})
 }
 
 func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
@@ -166,13 +162,13 @@ func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e
 	claims, err := h.AuthService.ValidateRefreshToken(r)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
+		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Unauthorized"})
 		log.Debugf("Refresh token validation error: %v", err.Error())
 		return
 	}
 	log.Debugf("Token validated for user: %s", claims.Username)
 
-	newAccessToken, err := h.AuthService.GenerateToken(claims.Username)
+	newAccessToken, err := h.AuthService.GenerateToken()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: err.Error()})
@@ -191,7 +187,7 @@ func (h *WsHandler) RefreshAccessToken(w http.ResponseWriter, r *http.Request, e
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(types.LoginResponse{Username: claims.Username})
+	_ = json.NewEncoder(w).Encode(types.LoginResponse{Message: "Success"})
 }
 
 func (h *WsHandler) LogoutHandler(w http.ResponseWriter, r *http.Request, e *types.EnvConfig) {
@@ -201,7 +197,7 @@ func (h *WsHandler) LogoutHandler(w http.ResponseWriter, r *http.Request, e *typ
 		_ = json.NewEncoder(w).Encode(types.ErrorResponse{Message: "Method Not Allowed"})
 		return
 	}
-	
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
 		Value:    "",
@@ -211,7 +207,7 @@ func (h *WsHandler) LogoutHandler(w http.ResponseWriter, r *http.Request, e *typ
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
-	
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
@@ -221,8 +217,8 @@ func (h *WsHandler) LogoutHandler(w http.ResponseWriter, r *http.Request, e *typ
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(types.LogoutResponse{Message: "Logged out successfully"})
+	_ = json.NewEncoder(w).Encode(types.LogoutResponse{Message: "Logged out successfully"})
 }
