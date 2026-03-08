@@ -106,7 +106,7 @@ func TestGenerateToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
-			token, err := service.GenerateToken(tt.username)
+			token, err := service.GenerateToken()
 			assert.NoError(t, err, tt.name)
 			assert.NotEmpty(t, token, tt.name)
 		})
@@ -124,17 +124,17 @@ func TestValidateToken(t *testing.T) {
 		{
 			name: "валидный токен",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateToken("testuser")
+				token, _ := s.GenerateToken()
 				return token
 			},
-			expectedUser: "testuser",
+			expectedUser: "",
 			wantErr:      false,
 		},
 		{
 			name: "истёкший токен",
 			setupToken: func(s *auth.Service) string {
 				sExpired := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
-				token, _ := sExpired.GenerateToken("testuser")
+				token, _ := sExpired.GenerateToken()
 				return token
 			},
 			wantErr:       true,
@@ -143,7 +143,7 @@ func TestValidateToken(t *testing.T) {
 		{
 			name: "неверная подпись",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateToken("testuser")
+				token, _ := s.GenerateToken()
 				return token + "invalid"
 			},
 			wantErr: true,
@@ -152,7 +152,7 @@ func TestValidateToken(t *testing.T) {
 			name: "токен от другого секретного ключа",
 			setupToken: func(s *auth.Service) string {
 				sOther := auth.NewService("other-secret", "refresh-secret", time.Second*300, time.Hour*24)
-				token, _ := sOther.GenerateToken("testuser")
+				token, _ := sOther.GenerateToken()
 				return token
 			},
 			wantErr: true,
@@ -188,7 +188,6 @@ func TestValidateToken(t *testing.T) {
 			} else {
 				assert.NoError(t, err, tt.name)
 				assert.NotNil(t, claims, tt.name)
-				assert.Equal(t, tt.expectedUser, claims.Username, tt.name)
 			}
 		})
 	}
@@ -204,7 +203,7 @@ func TestJWTMiddleware(t *testing.T) {
 		{
 			name: "валидный токен",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateToken("testuser")
+				token, _ := s.GenerateToken()
 				return token
 			},
 			expectedStatus: http.StatusOK,
@@ -230,7 +229,7 @@ func TestJWTMiddleware(t *testing.T) {
 			name: "истёкший токен",
 			setupToken: func(s *auth.Service) string {
 				sExpired := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
-				token, _ := sExpired.GenerateToken("testuser")
+				token, _ := sExpired.GenerateToken()
 				return token
 			},
 			expectedStatus: http.StatusUnauthorized,
@@ -269,7 +268,7 @@ func TestJWTMiddleware(t *testing.T) {
 			assert.Equal(t, tt.expectNextCall, nextCalled, tt.name)
 
 			if tt.expectNextCall {
-				assert.Equal(t, "testuser", capturedCtxUser, tt.name)
+				assert.NotNil(t, capturedCtxUser, tt.name)
 			}
 		})
 	}
@@ -288,7 +287,7 @@ func TestGenerateRefreshToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := auth.NewService("secret", "refresh-secret", time.Second*300, time.Hour*24)
-			token, err := service.GenerateRefreshToken(tt.username)
+			token, err := service.GenerateRefreshToken()
 			assert.NoError(t, err, tt.name)
 			assert.NotEmpty(t, token, tt.name)
 		})
@@ -306,17 +305,17 @@ func TestValidateRefreshToken(t *testing.T) {
 		{
 			name: "валидный refresh токен",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateRefreshToken("testuser")
+				token, _ := s.GenerateRefreshToken()
 				return token
 			},
-			expectedUser: "testuser",
+			expectedUser: "",
 			wantErr:      false,
 		},
 		{
 			name: "истёкший refresh токен",
 			setupToken: func(s *auth.Service) string {
 				sExpired := auth.NewService("secret", "refresh-secret", time.Second*300, time.Second*0)
-				token, _ := sExpired.GenerateRefreshToken("testuser")
+				token, _ := sExpired.GenerateRefreshToken()
 				time.Sleep(time.Millisecond * 100) // Ждём истечения
 				return token
 			},
@@ -326,7 +325,7 @@ func TestValidateRefreshToken(t *testing.T) {
 		{
 			name: "неверная подпись refresh токена",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateRefreshToken("testuser")
+				token, _ := s.GenerateRefreshToken()
 				return token + "invalid"
 			},
 			wantErr: true,
@@ -335,7 +334,7 @@ func TestValidateRefreshToken(t *testing.T) {
 			name: "refresh токен от другого секретного ключа",
 			setupToken: func(s *auth.Service) string {
 				sOther := auth.NewService("secret", "other-refresh-secret", time.Second*300, time.Hour*24)
-				token, _ := sOther.GenerateRefreshToken("testuser")
+				token, _ := sOther.GenerateRefreshToken()
 				return token
 			},
 			wantErr: true,
@@ -351,7 +350,7 @@ func TestValidateRefreshToken(t *testing.T) {
 		{
 			name: "access токен вместо refresh (разные секреты)",
 			setupToken: func(s *auth.Service) string {
-				token, _ := s.GenerateToken("testuser") // Генерируем access токен
+				token, _ := s.GenerateToken() // Генерируем access токен
 				return token
 			},
 			wantErr: true,
@@ -379,7 +378,6 @@ func TestValidateRefreshToken(t *testing.T) {
 			} else {
 				assert.NoError(t, err, tt.name)
 				assert.NotNil(t, claims, tt.name)
-				assert.Equal(t, tt.expectedUser, claims.Username, tt.name)
 			}
 		})
 	}

@@ -149,7 +149,7 @@ func TestLoginUser(t *testing.T) {
 		var resp types.LoginResponse
 		err := json.NewDecoder(rr.Body).Decode(&resp)
 		assert.NoError(t, err)
-		assert.Equal(t, "test@example.com", resp.User)
+		assert.Equal(t, "Login successfully", resp.Message)
 
 		// Проверяем, что cookie установлены (auth_token и refresh_token)
 		cookies := rr.Result().Cookies()
@@ -239,7 +239,7 @@ func TestLoginUser(t *testing.T) {
 func TestMe(t *testing.T) {
 	t.Run("авторизованный пользователь", func(t *testing.T) {
 		service, handler := testHandler(t)
-		token, _ := service.GenerateToken("testuser")
+		token, _ := service.GenerateToken()
 
 		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
@@ -258,7 +258,7 @@ func TestMe(t *testing.T) {
 		var resp types.LoginResponse
 		err = json.NewDecoder(rr.Body).Decode(&resp)
 		assert.NoError(t, err)
-		assert.Equal(t, "testuser", resp.Username)
+		assert.Equal(t, "Success", resp.Message)
 	})
 
 	t.Run("неавторизованный пользователь", func(t *testing.T) {
@@ -274,7 +274,7 @@ func TestMe(t *testing.T) {
 	t.Run("с истёкшим токеном", func(t *testing.T) {
 		service := auth.NewService("secret", "refresh-secret", time.Second*0, time.Hour*24)
 		handler := &handlers.WsHandler{AuthService: service}
-		token, _ := service.GenerateToken("testuser")
+		token, _ := service.GenerateToken()
 
 		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
@@ -298,7 +298,7 @@ func TestRefreshAccessToken(t *testing.T) {
 		_ = service.Register("refresh@example.com", "password123", "refreshuser")
 
 		// Получаем refresh токен
-		refreshToken, err := service.GenerateRefreshToken("refresh@example.com")
+		refreshToken, err := service.GenerateRefreshToken()
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
@@ -344,7 +344,7 @@ func TestRefreshAccessToken(t *testing.T) {
 		handler := &handlers.WsHandler{AuthService: service}
 
 		// Генерируем истёкший refresh токен
-		refreshToken, _ := service.GenerateRefreshToken("testuser")
+		refreshToken, _ := service.GenerateRefreshToken()
 		time.Sleep(time.Millisecond * 100) // Ждём истечения
 
 		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
@@ -375,7 +375,7 @@ func TestRefreshAccessToken(t *testing.T) {
 
 		// 2. Логинимся и получаем токены
 		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "fullcycle@example.com",
+			Email:    "fullcycle@example.com",
 			Password: "password123",
 		})
 		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
@@ -416,7 +416,7 @@ func TestRefreshAccessToken(t *testing.T) {
 		validateReq.AddCookie(&http.Cookie{Name: "auth_token", Value: newAuthToken})
 		claims, err := service.ValidateToken(validateReq)
 		require.NoError(t, err)
-		assert.Equal(t, "fullcycle@example.com", claims.Username)
+		assert.NotNil(t, claims)
 	})
 }
 
@@ -428,7 +428,7 @@ func TestLogoutHandler(t *testing.T) {
 		_ = service.Register("logout@example.com", "password123", "logoutuser")
 
 		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "logout@example.com",
+			Email:    "logout@example.com",
 			Password: "password123",
 		})
 		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
@@ -538,7 +538,7 @@ func TestLogoutHandler(t *testing.T) {
 
 		// 2. Логинимся
 		loginReq, loginRr := postJSON(t, "/auth/login", types.LoginRequest{
-			Username: "cycle@example.com",
+			Email:    "cycle@example.com",
 			Password: "password123",
 		})
 		handler.LoginUser(loginRr, loginReq, testEnvConfig(t))
@@ -559,7 +559,7 @@ func TestLogoutHandler(t *testing.T) {
 		meReq.AddCookie(&http.Cookie{Name: "auth_token", Value: authToken})
 		claims, err := service.ValidateToken(meReq)
 		require.NoError(t, err)
-		assert.Equal(t, "cycle@example.com", claims.Username)
+		assert.NotNil(t, claims)
 
 		// 5. Выполняем logout
 		logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
